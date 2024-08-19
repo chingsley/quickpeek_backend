@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quickpeek-app
+spec:
+  replicas: 2  # Number of pod replicas
+  selector:
+    matchLabels:
+      app: quickpeek-app
+  template:
+    metadata:
+      labels:
+        app: quickpeek-app
+    spec:
+      containers:
+        - name: quickpeek-app
+          image: replace_with_your_image_name/quickpeek-app:latest  # Replace with your image name
+          ports:
+            - containerPort: 3000  # The port your app listens to inside the container
+          env:
+            - name: NODE_ENV
+              value: "production"  # Set environment to production
+            - name: PORT
+              value: "3000"  # The port your app is configured to use
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "1Gi"
+              cpu: "1"
+          volumeMounts:
+            - name: config-volume
+              mountPath: /usr/src/app/config  # Path in the container where the config will be mounted
+      volumes:
+        - name: config-volume
+          configMap:
+            name: quickpeek-config  # Reference to a ConfigMap, if you use one

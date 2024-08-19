@@ -1,0 +1,25 @@
+apiVersion: skaffold/v2beta26
+kind: Config
+metadata:
+  name: quickpeek-app
+build:
+  artifacts:
+    - image: quickpeek-app
+      context: .
+      docker:
+        dockerfile: infrastructure/docker/Dockerfile
+deploy:
+  kubectl:
+    manifests:
+      - infrastructure/kubernetes/deployment.yml
+      - infrastructure/kubernetes/service.yml
+profiles:
+  - name: dev
+    build:
+      local:
+        push: false
+    deploy:
+      kubectl:
+        manifests:
+          - infrastructure/kubernetes/deployment.yml
+          - infrastructure/kubernetes/service.yml

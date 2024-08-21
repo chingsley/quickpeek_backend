@@ -1,6 +1,6 @@
 -- CreateTable
 CREATE TABLE "User" (
-    "id" SERIAL NOT NULL,
+    "id" TEXT NOT NULL,
     "email" TEXT NOT NULL,
     "password" TEXT NOT NULL,
     "name" TEXT NOT NULL,
@@ -12,11 +12,11 @@ CREATE TABLE "User" (
 
 -- CreateTable
 CREATE TABLE "Question" (
-    "id" SERIAL NOT NULL,
+    "id" TEXT NOT NULL,
     "title" TEXT NOT NULL,
     "content" TEXT NOT NULL,
-    "locationId" INTEGER NOT NULL,
-    "userId" INTEGER NOT NULL,
+    "locationId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -25,10 +25,10 @@ CREATE TABLE "Question" (
 
 -- CreateTable
 CREATE TABLE "Answer" (
-    "id" SERIAL NOT NULL,
+    "id" TEXT NOT NULL,
     "content" TEXT NOT NULL,
-    "questionId" INTEGER NOT NULL,
-    "userId" INTEGER NOT NULL,
+    "questionId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -37,7 +37,7 @@ CREATE TABLE "Answer" (
 
 -- CreateTable
 CREATE TABLE "Location" (
-    "id" SERIAL NOT NULL,
+    "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "latitude" DOUBLE PRECISION NOT NULL,
     "longitude" DOUBLE PRECISION NOT NULL,
@@ -49,9 +49,9 @@ CREATE TABLE "Location" (
 
 -- CreateTable
 CREATE TABLE "Transaction" (
-    "id" SERIAL NOT NULL,
+    "id" TEXT NOT NULL,
     "amount" DOUBLE PRECISION NOT NULL,
-    "userId" INTEGER NOT NULL,
+    "userId" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Transaction_pkey" PRIMARY KEY ("id")
@@ -59,11 +59,11 @@ CREATE TABLE "Transaction" (
 
 -- CreateTable
 CREATE TABLE "Rating" (
-    "id" SERIAL NOT NULL,
+    "id" TEXT NOT NULL,
     "value" INTEGER NOT NULL DEFAULT 0,
-    "userId" INTEGER NOT NULL,
-    "questionId" INTEGER,
-    "answerId" INTEGER,
+    "userId" TEXT NOT NULL,
+    "questionId" TEXT,
+    "answerId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Rating_pkey" PRIMARY KEY ("id")

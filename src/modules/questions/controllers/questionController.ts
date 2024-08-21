@@ -3,15 +3,13 @@ import prisma from '../../../core/database/prisma/client';
 
 export const createQuestion = async (req: Request, res: Response) => {
   try {
-    const { userId, content, title, user, location } = req.body;
-
+    const { content, title, location } = req.body;
     const question = await prisma.question.create({
       data: {
-        content,
-        userId,
         title,
-        user,
-        location
+        content,
+        location,
+        userId: req.user!.userId,
       },
     });
 
@@ -26,16 +24,11 @@ export const createQuestion = async (req: Request, res: Response) => {
 
 export const getAllQuestionsByUserId = async (req: Request, res: Response) => {
   try {
-    const { userId } = req.params;
-
     const questions = await prisma.question.findMany({
-      where: { userId: parseInt(userId, 10) },
+      where: { userId: req.user?.userId },
     });
 
-    res.status(200).json({
-      message: 'Questions retrieved successfully',
-      data: questions,
-    });
+    res.status(200).json(questions);
   } catch (error) {
     res.status(500).json({ error: 'Failed to retrieve questions' });
   }

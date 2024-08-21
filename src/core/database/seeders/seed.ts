@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
+import bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
@@ -7,34 +8,18 @@ async function main() {
   await prisma.rating.deleteMany({});
   await prisma.answer.deleteMany({});
   await prisma.question.deleteMany({});
-  await prisma.location.deleteMany({});
   await prisma.user.deleteMany({});
-  // Seed Locations
-  const location1 = await prisma.location.create({
-    data: {
-      id: uuidv4(),
-      name: 'Main Street',
-      latitude: 34.0522,
-      longitude: -118.2437,
-    },
-  });
-
-  const location2 = await prisma.location.create({
-    data: {
-      id: uuidv4(),
-      name: 'Second Avenue',
-      latitude: 40.7128,
-      longitude: -74.0060,
-    },
-  });
 
   // Seed Users
   const user1 = await prisma.user.create({
     data: {
       id: uuidv4(),
       name: 'john doe',
+      username: 'johnD',
       email: 'john.doe@example.com',
-      password: 'password123',
+      password: await bcrypt.hash('password1', 10),
+      latitude: 34.0522,
+      longitude: -118.2437,
     },
   });
 
@@ -42,8 +27,11 @@ async function main() {
     data: {
       id: uuidv4(),
       name: 'jane doe',
+      username: 'janeD',
       email: 'jane.doe@example.com',
-      password: 'password456',
+      password: await bcrypt.hash('password1', 10),
+      latitude: 40.7128,
+      longitude: -74.0060,
     },
   });
 
@@ -54,7 +42,7 @@ async function main() {
       title: 'Is the coffee shop open?',
       content: 'Is the coffee shop on Main Street open now?',
       userId: user1.id,
-      locationId: location1.id,
+      location: '41.40338, 2.17403',
     },
   });
 
@@ -64,7 +52,7 @@ async function main() {
       title: 'How long is the queue at the bakery?',
       content: 'Can anyone tell me how long the queue is at the bakery on Second Avenue?',
       userId: user2.id,
-      locationId: location2.id,
+      location: '34.0522, -70.0060',
     },
   });
 
@@ -91,20 +79,21 @@ async function main() {
   const rating1 = await prisma.rating.create({
     data: {
       id: uuidv4(),
-      value: 5,
-      userId: user1.id,
+      rating: 5,
+      questionerId: user1.id,
+      responderId: user2.id,
       questionId: question1.id,
-      answerId: answer1.id,
     },
   });
 
   const rating2 = await prisma.rating.create({
     data: {
       id: uuidv4(),
-      value: 4,
-      userId: user2.id,
+      rating: 2,
+      questionerId: user2.id,
+      responderId: user1.id,
       questionId: question2.id,
-      answerId: answer2.id,
+      feedback: 'told me the queue was too long. Other answers said there was no queue. I went anyway and found no queue',
     },
   });
 

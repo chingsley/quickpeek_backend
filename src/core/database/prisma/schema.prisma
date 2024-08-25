@@ -8,20 +8,33 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  email     String    @unique
-  password  String
-  name      String
-  username  String   @unique
-  latitude   Float
-  longitude  Float
-  questions Question[]
-  answers   Answer[]
-  questionerRatings Rating[] @relation("QuestionerRatings")
-  responderRatings Rating[] @relation("ResponderRatings")
-  transactions Transaction[]
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id                  String   @id @default(uuid())
+  email               String    @unique
+  password            String
+  name                String
+  username            String   @unique
+  deviceType          String
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  location            Location?
+  questions           Question[]
+  answers             Answer[]
+  questionerRatings   Rating[] @relation("QuestionerRatings")
+  responderRatings    Rating[] @relation("ResponderRatings")
+  transactions        Transaction[]
+
+}
+
+model Location {
+  id                  String    @id @default(uuid())
+  userId              String    @unique
+  latitude            Float
+  longitude           Float
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  user                 User      @relation(fields: [userId], references: [id])
 }
 
 model Question {
@@ -55,6 +68,7 @@ model Transaction {
   amount     Float
   userId     String
   createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
   user       User     @relation(fields: [userId], references: [id])
 }
 
@@ -64,9 +78,10 @@ model Rating {
   questionId       String
   questionerId     String      // id of the person (the questioner) that rates a responder
   responderId      String      // id of the person (the responder) that is being rated
-  createdAt        DateTime    @default(now())
   rating           Int         @default(0)
-  feedback         String?
+  feedback         String?     // optional field
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
 
   questioner       User        @relation("QuestionerRatings", fields: [questionerId], references: [id]) // the person (the questioner) that rates a responder
   responder        User        @relation("ResponderRatings", fields: [responderId],  references: [id]) // the person (the responder) that is being rated

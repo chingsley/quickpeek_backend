@@ -18,11 +18,9 @@ async function main() {
       username: 'johnD',
       email: 'john.doe@example.com',
       password: await bcrypt.hash('password1', 10),
-      latitude: 34.0522,
-      longitude: -118.2437,
+      deviceType: 'ios',
     },
   });
-
   const user2 = await prisma.user.create({
     data: {
       id: uuidv4(),
@@ -30,6 +28,23 @@ async function main() {
       username: 'janeD',
       email: 'jane.doe@example.com',
       password: await bcrypt.hash('password1', 10),
+      deviceType: 'android',
+    },
+  });
+
+  // Seed User Locations
+  const location1 = await prisma.location.create({
+    data: {
+      id: uuidv4(),
+      userId: user1.id,
+      latitude: 34.0522,
+      longitude: -118.2437,
+    },
+  });
+  const location2 = await prisma.location.create({
+    data: {
+      id: uuidv4(),
+      userId: user2.id,
       latitude: 40.7128,
       longitude: -74.0060,
     },
@@ -45,7 +60,6 @@ async function main() {
       location: '41.40338, 2.17403',
     },
   });
-
   const question2 = await prisma.question.create({
     data: {
       id: uuidv4(),
@@ -65,7 +79,6 @@ async function main() {
       userId: user2.id,
     },
   });
-
   const answer2 = await prisma.answer.create({
     data: {
       id: uuidv4(),
@@ -85,7 +98,6 @@ async function main() {
       questionId: question1.id,
     },
   });
-
   const rating2 = await prisma.rating.create({
     data: {
       id: uuidv4(),

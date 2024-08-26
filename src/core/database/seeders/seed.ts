@@ -19,6 +19,7 @@ async function main() {
       email: 'john.doe@example.com',
       password: await bcrypt.hash('password1', 10),
       deviceType: 'ios',
+      deviceToken: '740f4707',
     },
   });
   const user2 = await prisma.user.create({
@@ -29,6 +30,7 @@ async function main() {
       email: 'jane.doe@example.com',
       password: await bcrypt.hash('password1', 10),
       deviceType: 'android',
+      deviceToken: '9b7c25d4',
     },
   });
 

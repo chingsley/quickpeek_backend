@@ -7,6 +7,8 @@ export const validateUserRegistration = (req: Request, res: Response, next: Next
     username: Joi.string().min(3).max(30).required(),
     email: Joi.string().email().required(),
     password: Joi.string().min(6).required(),
+    deviceType: Joi.string().trim().valid(...['android', 'ios']).required(),
+    deviceToken: Joi.string().trim().required(),
   });
 
   const { error } = schema.validate(req.body);
@@ -19,6 +21,8 @@ export const validateUserLogin = (req: Request, res: Response, next: NextFunctio
   const schema = Joi.object({
     email: Joi.string().email().required(),
     password: Joi.string().min(6).required(),
+    deviceType: Joi.string().trim().valid(...['android', 'ios']).required(),
+    deviceToken: Joi.string().trim().required(),
   });
 
   const { error } = schema.validate(req.body);

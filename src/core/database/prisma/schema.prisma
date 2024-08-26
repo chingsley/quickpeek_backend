@@ -14,6 +14,7 @@ model User {
   name                String
   username            String   @unique
   deviceType          String
+  deviceToken         String   // unique identifier for push notifications
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 

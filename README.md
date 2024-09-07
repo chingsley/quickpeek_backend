@@ -89,13 +89,17 @@ Ensure the following software is installed on your machine:
    REDIS_URL=redis://localhost:6379
    ```
 
+   Be sure to create a db with the name: `quickpeek_db`
+
 4. **Run Migrations:**
 
    Set up the PostgreSQL database by running Prisma migrations:
 
    ```bash
-   npx prisma migrate dev --name init
+   npm run db:reset:dev
    ```
+
+   This will run the migration files and seed the database.
 
 5. **Start Redis:**
 
@@ -120,6 +124,7 @@ Ensure the following software is installed on your machine:
    ```
 
    This will run three processes:
+
    - The Redis server.
    - The main application server.
    - The Bull queue worker.
@@ -176,11 +181,13 @@ For production, it's recommended to use **PM2** for process management, along wi
 If you encounter issues during development or production, you can use the following commands:
 
 - **Check logs:**
+
   ```bash
   pm2 logs
   ```
 
 - **Restart the application:**
+
   ```bash
   pm2 restart quickpeek-app
   ```
@@ -202,4 +209,7 @@ For Docker:
 ## License
 
 This project is licensed under the MIT License.
+
+```
+
 ```

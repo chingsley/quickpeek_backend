@@ -7,8 +7,8 @@ const app = express();
 
 app.use(express.json());
 
-app.use('/api/v1/health', healthRoutes); // Mount the health routes
-app.use('/api/v1/questions', questionRoutes); // Mount the question routes
-app.use('/api/v1/users', userRoutes); // Mount the user routes
+app.use('/api/v1/health', healthRoutes);
+app.use('/api/v1/questions', questionRoutes);
+app.use('/api/v1/users', userRoutes);
 
 export default app;

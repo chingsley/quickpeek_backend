@@ -9,7 +9,6 @@ import { userLocationUpdateQueue } from '../../../core/queues/userLocationUpdate
 const prisma = new PrismaClient();
 const JWT_SECRET = config.jwtSecret!;
 const BCRYPT_SALT_ROUND = config.bcryptSaltRound!;
-console.log({ JWT_SECRET, BCRYPT_SALT_ROUND });
 
 export const registerUser = async (req: Request, res: Response) => {
   try {
@@ -63,6 +62,7 @@ export const loginUser = async (req: Request, res: Response) => {
 
     res.status(200).json({ message: 'Login successful', data: token });
   } catch (error) {
+    console.error('controller -> loginUser: ', error);
     res.status(500).json({ error: 'Error logging in' });
   }
 };

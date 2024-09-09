@@ -1,3 +1,5 @@
 node_modules
+node_modules__old
 .env
 dump.rdb
+.DS_Store

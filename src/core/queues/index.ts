@@ -1,7 +1,13 @@
 import { deviceUpdateQueue } from './deviceUpdateQueue';
 import { userLocationUpdateQueue } from './userLocationUpdateQueue';
-import processDeviceUpdate from '../jobs/deviceUpdateJob';
-import processUserLocationUpdate from '../jobs/userLocationUpdateJob';
+import { notifyNearbyUsersQueue } from './notifyNearbyUsersQueue';
+
+import {
+  processDeviceUpdate,
+  processUserLocationUpdate,
+  notifyNearbyUsers
+} from '../jobs';
 
 deviceUpdateQueue.process(processDeviceUpdate);
 userLocationUpdateQueue.process(processUserLocationUpdate);
+notifyNearbyUsersQueue.process(notifyNearbyUsers);

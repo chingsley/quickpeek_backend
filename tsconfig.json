@@ -6,8 +6,13 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
+    "allowSyntheticDefaultImports": true,
     "outDir": "./dist",
-    "rootDir": "./src"
+    "rootDir": "./src",
+    "types": [
+      "node",
+      "jest",
+    ] // Ensure you have node and jest types if you're using them
   },
   "include": [
     "src/**/*.ts"

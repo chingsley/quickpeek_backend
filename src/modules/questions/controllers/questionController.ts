@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../../../core/database/prisma/client';
+import { notifyNearbyUsersQueue } from '../../../core/queues/notifyNearbyUsersQueue';
 
 export const createQuestion = async (req: Request, res: Response) => {
   try {
@@ -13,9 +14,7 @@ export const createQuestion = async (req: Request, res: Response) => {
       },
     });
 
-    // draw a circle of xkm around 'location' point
-    // fetch from users table all users that are withing xkm by checking long and lat values in users table
-    // send question to those users as push notificaion (we need to know the device type of each user (ios or android, required for sending push notification))
+    notifyNearbyUsersQueue.add({ question, prisma });
 
     res.status(201).json({
       message: 'Question created successfully',

@@ -25,6 +25,7 @@ model User {
   responderRatings    Rating[] @relation("ResponderRatings")
   transactions        Transaction[]
 
+  @@map("users")  // This will map the User model to the "users" table in SQL
 }
 
 model Location {
@@ -36,6 +37,8 @@ model Location {
   updatedAt           DateTime  @updatedAt
 
   user                 User      @relation(fields: [userId], references: [id])
+
+  @@map("locations")  // This will map the Location model to the "locations" table in SQL
 }
 
 model Question {
@@ -50,6 +53,8 @@ model Question {
   updatedAt               DateTime  @updatedAt
 
   user                    User      @relation(fields: [userId], references: [id])
+
+  @@map("questions")  // This will map the Question model to the "questions" table in SQL
 }
 
 model Answer {
@@ -62,6 +67,8 @@ model Answer {
 
   question Question @relation(fields: [questionId], references: [id])
   user     User     @relation(fields: [userId], references: [id])
+
+  @@map("answers")  // This will map the Answer model to the "answers" table in SQL
 }
 
 model Transaction {
@@ -71,6 +78,8 @@ model Transaction {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   user       User     @relation(fields: [userId], references: [id])
+
+  @@map("transactions")  // This will map the Transaction model to the "transactions" table in SQL
 }
 
 // questioner rates a responder's response to a question
@@ -87,4 +96,6 @@ model Rating {
   questioner       User        @relation("QuestionerRatings", fields: [questionerId], references: [id]) // the person (the questioner) that rates a responder
   responder        User        @relation("ResponderRatings", fields: [responderId],  references: [id]) // the person (the responder) that is being rated
   question         Question    @relation(fields: [questionId],  references: [id])   // Optional relation
+
+  @@map("ratings")  // This will map the Rating model to the "ratings" table in SQL
 }

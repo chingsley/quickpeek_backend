@@ -33,6 +33,7 @@ export const createQuestion = async (req: Request, res: Response) => {
   }
 };
 
+// TODO: paginate this endpoint
 export const getAllQuestionsByUserId = async (req: Request, res: Response) => {
   try {
     const questions = await prisma.question.findMany({

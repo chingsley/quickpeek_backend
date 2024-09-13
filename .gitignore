@@ -1,5 +1,6 @@
 node_modules
 node_modules__old
 .env
+.env.test
 dump.rdb
 .DS_Store

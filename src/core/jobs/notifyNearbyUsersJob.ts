@@ -1,19 +1,25 @@
 import { PrismaClient, Question, User } from '@prisma/client';
 import { Job } from 'bull';
+import prisma from '../database/prisma/client';
 
 export const notifyNearbyUsers = async (job: Job) => {
   try {
     const radiusInKm = parseFloat(process.env.RADIUS_OF_CONCERN_IN_KM || '3');
-    const { question, prisma } = job.data;
-    const [qnLongitude, qnLatitude] = question.location.split(',').map(Number);
-    const nearbyUsers = await findNearbyUsers(prisma, qnLongitude, qnLatitude, radiusInKm);
-    // console.log('nearbyUsers: ', nearbyUsers);
+    const { questionId, questionLon, questionLat, questionerId, questionTitle, questionContent } = job.data;
+    const nearbyUsers = await findNearbyUsers(prisma, questionLon, questionLat, radiusInKm);
     if (nearbyUsers.length === 0) return;
 
     await Promise.all(
       nearbyUsers.map(async (user) => {
-        if (user.userId !== question.userId) { // Do not notify the user about their own question
-          await sendNotification(user.deviceToken, user.deviceType, question);
+        if (user.userId !== questionerId) { // Do not notify the user about their own question
+          await sendNotification({
+            deviceToken: user.deviceToken,
+            deviceType: user.deviceType,
+            questionId,
+            questionTitle,
+            questionContent,
+            questionerId,
+          });
         }
       })
     );
@@ -49,9 +55,23 @@ export async function findNearbyUsers(prisma: PrismaClient, longitude: number, l
   return nearbyUsers;
 }
 
-export async function sendNotification(deviceToken: string, deviceType: string, question: Question) {
+export async function sendNotification({
+  deviceToken,
+  deviceType,
+  questionId,
+  questionTitle,
+  questionContent,
+  questionerId
+}: {
+  deviceToken: string;
+  deviceType: string;
+  questionId: string;
+  questionTitle: string;
+  questionContent: string;
+  questionerId: string;
+}) {
   // implement notification sending...
-  console.log('\nsending notification....', question.id, '....\n');
+  console.log('\nsending notification....', questionId, '....\n');
 }
 
 

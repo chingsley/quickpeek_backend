@@ -1,37 +1,31 @@
 import { Job } from 'bull';
-import { PrismaClient } from '@prisma/client';
-// import notifyNearbyUsers from '../../../src/core/jobs/notifyNearbyUsersJob';
+import prisma from '../../../src/core/database/prisma/client';
 import * as notifications from '../../../src/core/jobs/notifyNearbyUsersJob'; // Adjust the path as needed
 import { calculateHaversineDistance } from '../../../src/common/utils/geo';
-import dotenv from 'dotenv';
-import path from 'path';
-
-// Load environment variables from .env.test
-const testEnv = dotenv.config({ path: path.resolve(__dirname, '../../../.env.test') });
-// console.log({ dbUrl: process.env.DATABASE_URL, testEnv, __dirname });
-
-const prisma = new PrismaClient({
-  datasources: {
-    db: {
-      url: testEnv.parsed!.DATABASE_URL,
-    },
-  },
-});
-
-// Mock the module containing sendNotification
-// jest.mock('../../../src/core/jobs/notifyNearbyUsersJob', () => {
-//   const actualModule = jest.requireActual('../../../src/core/jobs/notifyNearbyUsersJob');
-//   return {
-//     ...actualModule,
-//     sendNotification: jest.fn(),
-//   };
-// });
-
+import seedTestData from '../../seed/notifyNearbyUsers.test.seed';
+import clearSeed from '../../seed/clear.seed';
 
 describe('Notification System', () => {
   beforeAll(async () => {
+    try {
+      await clearSeed(prisma);
+      await seedTestData(prisma);
+      console.log('Test data seeded successfully.');
+    } catch (error) {
+      console.error('Error seeding test data:', error);
+      await prisma.$disconnect();
+      process.exit(1);
+    }
+
     // Optionally, run migrations and seed data here if not done manually
     // await import('../prisma/seed.test'); // If you prefer to seed within the test
+
+    // .then(async () => {
+
+    // })
+    // .catch(async (e) => {
+
+    // });
   });
 
   afterAll(async () => {
@@ -70,7 +64,16 @@ describe('Notification System', () => {
     const question = await prisma.question.findFirst();
     const [longitude, latitude] = question!.location.split(', ').map(Number);
     const radiusInKm = 10;
-    await notifications.notifyNearbyUsers({ data: { question, prisma } } as Job);
+    await notifications.notifyNearbyUsers({
+      data: {
+        questionId: question!.id,
+        questionTitle: question!.title,
+        questionContent: question!.content,
+        questionerId: question!.userId,
+        questionLon: longitude,
+        questionLat: latitude,
+      }
+    } as Job);
 
     const nearbyUsers = await notifications.findNearbyUsers(prisma, longitude, latitude, radiusInKm);
 

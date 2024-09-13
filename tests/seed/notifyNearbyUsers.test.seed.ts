@@ -12,9 +12,9 @@ const generateRandomLocationWithinRadius = (longitude: number, latitude: number,
   };
 };
 
-const prisma = new PrismaClient();
+// const prisma = new PrismaClient();
 
-const seedTestData = async () => {
+const seedTestData = async (prisma: PrismaClient) => {
   // Clear existing data
   await prisma.rating.deleteMany({});
   await prisma.answer.deleteMany({});
@@ -71,13 +71,15 @@ const seedTestData = async () => {
   );
 };
 
-seedTestData()
-  .then(async () => {
-    console.log('Test data seeded successfully.');
-    await prisma.$disconnect();
-  })
-  .catch(async (e) => {
-    console.error('Error seeding test data:', e);
-    await prisma.$disconnect();
-    process.exit(1);
-  });
+// seedTestData()
+//   .then(async () => {
+//     console.log('Test data seeded successfully.');
+//     await prisma.$disconnect();
+//   })
+//   .catch(async (e) => {
+//     console.error('Error seeding test data:', e);
+//     await prisma.$disconnect();
+//     process.exit(1);
+//   });
+
+export default seedTestData;

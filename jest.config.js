@@ -16,5 +16,5 @@ module.exports = {
   // Use ESModules support
   extensionsToTreatAsEsm: ['.ts'],
   setupFiles: ['dotenv/config'],
-  setupFilesAfterEnv: ['<rootDir>/.env.test'],
+  // setupFilesAfterEnv: ['<rootDir>/.env.test'],
 };

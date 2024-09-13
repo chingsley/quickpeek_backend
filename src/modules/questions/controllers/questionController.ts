@@ -14,7 +14,15 @@ export const createQuestion = async (req: Request, res: Response) => {
       },
     });
 
-    notifyNearbyUsersQueue.add({ question, prisma });
+    const [questionLon, questionLat] = location.split(',').map(Number);
+    notifyNearbyUsersQueue.add({
+      questionId: question.id,
+      questionLon: questionLon,
+      questionLat: questionLat,
+      questionerId: question.userId,
+      questionTitle: title,
+      questionContent: content
+    });
 
     res.status(201).json({
       message: 'Question created successfully',

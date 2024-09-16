@@ -5,8 +5,11 @@ import { validateUserRegistration, validateUserLogin, validateUserLocation } fro
 
 const router = Router();
 
-router.post('/register', validateUserRegistration, registerUser);
+router.post('/', validateUserRegistration, registerUser);
 router.post('/login', validateUserLogin, loginUser);
 router.post('/location', authenticateToken, validateUserLocation, updateUserLocation);
+// other endpoints:
+// user can view their profile:
+// user can update their profile: change username (maybe)
 
 export default router;

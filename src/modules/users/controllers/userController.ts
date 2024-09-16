@@ -1,12 +1,16 @@
 import { Request, Response } from 'express';
+import { Prisma } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import config from '../../../core/config/default';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../../../core/database/prisma/client';
 import { deviceUpdateQueue } from '../../../core/queues/deviceUpdateQueue';
 import { userLocationUpdateQueue } from '../../../core/queues/userLocationUpdateQueue';
+import {
+  PRISMA_UNIQUE_CONSTRAINT_VIOLATION_CODE
+} from './../../../common/constants/index';
 
-const prisma = new PrismaClient();
+
 const JWT_SECRET = config.jwtSecret!;
 const BCRYPT_SALT_ROUND = config.bcryptSaltRound!;
 
@@ -39,7 +43,23 @@ export const registerUser = async (req: Request, res: Response) => {
       message: 'User registered successfully',
       data: { user: newUser, location: userLocation },
     });
-  } catch (error) {
+  } catch (error: any) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      // Handle unique constraint violation (P2002)
+      if (error.code === PRISMA_UNIQUE_CONSTRAINT_VIOLATION_CODE) {
+        const uniqueField = error.meta?.target as string[];
+
+        let errorMessage = 'Unique constraint violation';
+        if (uniqueField && uniqueField.includes('email')) {
+          errorMessage = 'Email is already in use';
+        } else if (uniqueField && uniqueField.includes('username')) {
+          errorMessage = 'Username is already taken';
+        }
+
+        return res.status(400).json({ error: errorMessage });
+      }
+    }
+
     res.status(500).json({ error: 'Error registering user' });
   }
 };
@@ -62,7 +82,6 @@ export const loginUser = async (req: Request, res: Response) => {
 
     res.status(200).json({ message: 'Login successful', data: token });
   } catch (error) {
-    console.error('controller -> loginUser: ', error);
     res.status(500).json({ error: 'Error logging in' });
   }
 };

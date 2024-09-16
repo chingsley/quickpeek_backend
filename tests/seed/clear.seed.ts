@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 
-const clearSeed = async (prisma: PrismaClient) => {
+const clearAllSeed = async (prisma: PrismaClient) => {
   await prisma.rating.deleteMany({});
   await prisma.answer.deleteMany({});
   await prisma.question.deleteMany({});
@@ -9,4 +9,6 @@ const clearSeed = async (prisma: PrismaClient) => {
   await prisma.user.deleteMany({});
 };
 
-export default clearSeed;
+
+
+export default clearAllSeed;

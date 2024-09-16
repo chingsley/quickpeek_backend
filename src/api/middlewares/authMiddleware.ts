@@ -1,9 +1,10 @@
+import { TokenPayload } from './../../common/types/index';
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
-interface TokenPayload {
-  userId: string;
-}
+// interface TokenPayload {
+//   userId: string;
+// }
 
 //Augment the existing 'Request' interface from exporess
 declare global {

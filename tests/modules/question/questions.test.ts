@@ -1,10 +1,10 @@
-import { faker } from '@faker-js/faker/locale/af_ZA';
+import { faker } from '@faker-js/faker';
 import { Question, User } from '@prisma/client';
 import jwt from 'jsonwebtoken';
 import request from 'supertest';
 import app from '../../../src/app';
 import prisma from '../../../src/core/database/prisma/client';
-import clearSeed from '../../seed/clear.seed';
+import clearSeedAll from '../../seed/clear.seed';
 
 describe('questions', () => {
   describe('Question Creation Endpoint (POST /api/v1/questions)', () => {
@@ -14,7 +14,7 @@ describe('questions', () => {
 
 
     beforeAll(async () => {
-      await clearSeed(prisma);
+      await clearSeedAll(prisma);
 
       // Seed the test database with a user for authentication
       testUser = await prisma.user.create({
@@ -119,7 +119,7 @@ describe('questions', () => {
     let testUser2: any;
 
     beforeAll(async () => {
-      await clearSeed(prisma);
+      await clearSeedAll(prisma);
       // seed two users
       [testUser1, testUser2] = await Promise.all(
         Array.from({ length: 2 }, async (_, i) => {
@@ -214,7 +214,7 @@ describe('questions', () => {
     let question: Question;
 
     beforeAll(async () => {
-      await clearSeed(prisma);
+      await clearSeedAll(prisma);
       // seed two users
       [testUser1, testUser2] = await Promise.all(
         Array.from({ length: 2 }, async (_, i) => {

@@ -20,7 +20,8 @@
     "seed:test": "dotenv -e .env.test -- ts-node src/core/database/seeders/test.seed.ts",
     "migrate:reset:test": "dotenv -e .env.test -- prisma migrate reset --force --schema=src/core/database/prisma/schema.prisma",
     "test": "NODE_ENV=test && jest --watchAll --detectOpenHandles",
-    "test:module:question": "NODE_ENV=test && jest tests/modules/question/questions.test.ts --detectOpenHandles --verbose --watch"
+    "test:module:question": "NODE_ENV=test && jest tests/modules/question/questions.test.ts --detectOpenHandles --verbose --watch",
+    "test:module:user": "NODE_ENV=test && jest tests/modules/user/user.test.ts --detectOpenHandles --verbose --watch"
   },
   "keywords": [],
   "author": "",

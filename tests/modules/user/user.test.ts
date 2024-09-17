@@ -8,6 +8,7 @@ import prisma from "../../../src/core/database/prisma/client";
 import app from '../../../src/app';
 import clearAllSeed from '../../seed/clear.seed';
 import { userLocationUpdateQueue } from '../../../src/core/queues/userLocationUpdateQueue';
+import { deviceUpdateQueue } from '../../../src/core/queues/deviceUpdateQueue';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
 
@@ -116,6 +117,23 @@ describe('Users', () => {
       deviceToken: 'someDiveToken'
     };
 
+    const deviceUpdateQueueAddMock = jest.spyOn(deviceUpdateQueue, 'add').mockImplementation((data) => {
+      // console.log('adding to the queue in test...', data, typeof data);
+      // Return a mock Job object that contains the data
+      const mockJob: Partial<Job> = {
+        id: 1,
+        data
+      };
+
+      deviceUpdateQueue.process(() => { });
+      return Promise.resolve(mockJob as Job);
+    });
+
+    const deviceUpdateQueueProcessMock = jest.spyOn(deviceUpdateQueue, 'process').mockImplementation(async (job) => {
+      // console.log('processing job in test, updating location...', job, typeof job);
+      return Promise.resolve();
+    });
+
     beforeAll(async () => {
       await clearAllSeed(prisma);
       await prisma.location.deleteMany({});
@@ -123,6 +141,8 @@ describe('Users', () => {
     });
     afterAll(async () => {
       await prisma.$disconnect();
+      deviceUpdateQueueAddMock.mockRestore();  // Restore original add method after tests
+      deviceUpdateQueueProcessMock.mockRestore();  // Restore original process method after tests
     });
 
     beforeEach(async () => {
@@ -143,6 +163,12 @@ describe('Users', () => {
       const token = res.body.data;
       const decoded = jwt.verify(token, JWT_SECRET) as TokenPayload;
       expect(decoded.userId).toEqual(user.id);
+       expect(deviceUpdateQueue.add).toHaveBeenCalledWith({
+        userId: user.id,
+        deviceToken: loginPayload.deviceToken,
+        deviceType: loginPayload.deviceType,
+      });
+      expect(deviceUpdateQueue.process).toHaveBeenCalled();
     });
     it('should reject incorrect email', async () => {
       hashedPassword = await bcrypt.hash(loginPayload.password, 10);
@@ -179,7 +205,7 @@ describe('Users', () => {
     });
   });
   describe('User Location Update Endpoint', () => {
-    const addMock = jest.spyOn(userLocationUpdateQueue, 'add').mockImplementation((data) => {
+    const userLocationUpdateQueueAddMock = jest.spyOn(userLocationUpdateQueue, 'add').mockImplementation((data) => {
       // console.log('adding to the queue in test...', data, typeof data);
       // Return a mock Job object that contains the data
       const mockJob: Partial<Job> = {
@@ -187,11 +213,11 @@ describe('Users', () => {
         data
       };
 
-      userLocationUpdateQueue.process((job) => { });
+      userLocationUpdateQueue.process(() => { });
       return Promise.resolve(mockJob as Job);
     });
 
-    const processMock = jest.spyOn(userLocationUpdateQueue, 'process').mockImplementation(async (job) => {
+    const userLocationUpdateQueueProcessMock = jest.spyOn(userLocationUpdateQueue, 'process').mockImplementation(async (job) => {
       // console.log('processing job in test, updating location...', job, typeof job);
       return Promise.resolve();
     });
@@ -202,8 +228,8 @@ describe('Users', () => {
 
     afterAll(async () => {
       await prisma.$disconnect();
-      addMock.mockRestore();  // Restore original add method after tests
-      processMock.mockRestore();  // Restore original process method after tests
+      userLocationUpdateQueueAddMock.mockRestore();  // Restore original add method after tests
+      userLocationUpdateQueueProcessMock.mockRestore();  // Restore original process method after tests
     });
 
     it('should send the location update to the queue and process it', async () => {
@@ -230,13 +256,12 @@ describe('Users', () => {
         .expect(201);
 
       expect(response.body.message).toBe('User location sent to the queue for update');
-      expect(userLocationUpdateQueue.add).toHaveBeenCalled();
-      expect(addMock).toHaveBeenCalledWith({
+      expect(userLocationUpdateQueue.add).toHaveBeenCalledWith({
         userId: user.id,
         longitude: 12.34,
         latitude: 56.78
       });
-      expect(processMock).toHaveBeenCalled();
+      expect(userLocationUpdateQueue.process).toHaveBeenCalled();
     });
   });
 });

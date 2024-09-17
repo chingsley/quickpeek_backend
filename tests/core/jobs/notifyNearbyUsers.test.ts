@@ -3,12 +3,12 @@ import prisma from '../../../src/core/database/prisma/client';
 import * as notifications from '../../../src/core/jobs/notifyNearbyUsersJob'; // Adjust the path as needed
 import { calculateHaversineDistance } from '../../../src/common/utils/geo';
 import seedTestData from '../../seed/notifyNearbyUsers.test.seed';
-import clearSeed from '../../seed/clear.seed';
+import clearAllSeed from '../../seed/clear.seed';
 
 describe('Notification System', () => {
   beforeAll(async () => {
     try {
-      await clearSeed(prisma);
+      await clearAllSeed(prisma);
       await seedTestData(prisma);
       console.log('Test data seeded successfully.');
     } catch (error) {
@@ -42,7 +42,7 @@ describe('Notification System', () => {
     jest.clearAllMocks();
   });
 
-  it('should notify approximately 10 nearby users for each question', async () => {
+  it('should notify nearby users', async () => {
     const questions = await prisma.question.findMany();
     for (const question of questions) {
       const [longitude, latitude] = question.location.split(', ').map(Number);
@@ -87,7 +87,7 @@ describe('Notification System', () => {
         userId: (await prisma.user.findFirst())!.id,
         title: '',
         content: 'Far away question',
-        location: '180.0000, 90.0000', // Extreme coordinates unlikely to match any user
+        location: '180.0000, 90.0000', // Extreme coordinates UNLIKELY to match any user (unlikely, but still possilbe, so sometimes it causes flaky test because the central coordinates in the seed are generated at random)
       },
     });
 

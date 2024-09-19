@@ -1,3 +1,4 @@
+import firebaseAdmin from '../config/firebase';
 import { PrismaClient, Question, User } from '@prisma/client';
 import { Job } from 'bull';
 import prisma from '../database/prisma/client';
@@ -11,15 +12,14 @@ export const notifyNearbyUsers = async (job: Job) => {
 
     await Promise.all(
       nearbyUsers.map(async (user) => {
-        if (user.userId !== questionerId) { // Do not notify the user about their own question
-          await sendNotification({
-            deviceToken: user.deviceToken,
-            deviceType: user.deviceType,
-            questionId,
-            questionTitle,
-            questionContent,
-            questionerId,
-          });
+        if (user.userId !== questionerId) { // Do not notify a user about their own question
+          const payload = {
+            title: questionTitle,
+            body: questionContent,
+            data: { questionId: questionId },
+          };
+
+          await sendNotification(user.deviceToken, payload);
         }
       })
     );
@@ -55,24 +55,27 @@ export async function findNearbyUsers(prisma: PrismaClient, longitude: number, l
   return nearbyUsers;
 }
 
-export async function sendNotification({
-  deviceToken,
-  deviceType,
-  questionId,
-  questionTitle,
-  questionContent,
-  questionerId
-}: {
-  deviceToken: string;
-  deviceType: string;
-  questionId: string;
-  questionTitle: string;
-  questionContent: string;
-  questionerId: string;
-}) {
-  // implement notification sending...
-  console.log('\nsending notification....', questionId, '....\n');
-}
+// send FCM notification
+export const sendNotification = async (deviceToken: string, payload: any) => {
+  const message = {
+    token: deviceToken,
+    notification: {
+      title: payload.title,
+      body: payload.body,
+    },
+    data: payload.data, // Any additional data I want to send to FE
+  };
+
+  try {
+    const response = await firebaseAdmin.messaging().send(message);
+    console.log('Successfully sent message:', response);
+    return response;
+  } catch (error) {
+    console.error('Error sending message:', error);
+    throw error;
+  }
+};
+
 
 
 export default notifyNearbyUsers;

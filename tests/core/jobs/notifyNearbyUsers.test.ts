@@ -16,16 +16,6 @@ describe('Notification System', () => {
       await prisma.$disconnect();
       process.exit(1);
     }
-
-    // Optionally, run migrations and seed data here if not done manually
-    // await import('../prisma/seed.test'); // If you prefer to seed within the test
-
-    // .then(async () => {
-
-    // })
-    // .catch(async (e) => {
-
-    // });
   });
 
   afterAll(async () => {

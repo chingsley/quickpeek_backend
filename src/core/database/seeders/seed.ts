@@ -45,6 +45,7 @@ const seedTestData = async () => {
           username: faker.internet.userName(),
           deviceType: i % 2 === 0 ? 'ios' : 'android',
           deviceToken: faker.string.uuid(),
+          notificationsEnabled: true,
           location: {
             create: {
               longitude: userLocation.longitude,

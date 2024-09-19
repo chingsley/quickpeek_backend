@@ -1,6 +1,9 @@
 import { Request, Response } from 'express';
+import { Prisma, Question } from '@prisma/client'; // Import Prisma types
 import prisma from '../../../core/database/prisma/client';
 import { notifyNearbyUsersQueue } from '../../../core/queues/notifyNearbyUsersQueue';
+import { sendAnswerToQuestionerQueue } from '../../../core/queues/sendAnswerToQuestionerQueue';
+
 
 export const createQuestion = async (req: Request, res: Response) => {
   try {
@@ -56,11 +59,15 @@ export const createAnswerForQuestion = async (req: Request, res: Response) => {
       data: {
         questionId,
         content,
-        userId: req.user!.userId,
+        userId: req.user!.userId, // responder id
       }
     });
-    // use questionId to get questioner id (as user.id) from user table
-    // send answer to questioner as push notification
+
+    sendAnswerToQuestionerQueue.add({
+      questionId,
+      answerContent: answer.content,
+      responderId: answer.userId,
+    });
     res.status(201).json({
       message: 'Answer created successfully',
       data: answer
@@ -69,4 +76,5 @@ export const createAnswerForQuestion = async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Failed to create answer' });
   }
 };
+
 

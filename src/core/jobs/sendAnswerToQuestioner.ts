@@ -3,30 +3,53 @@ import { Job } from 'bull';
 import prisma from '../database/prisma/client';
 import { sendNotification } from '../messaging/firebase.push';
 
-export const notifyNearbyUsers = async (job: Job) => {
+type QuestionWithUser = Question & {
+  user: {
+    deviceToken: string;
+    deviceType: string;
+    notificationsEnabled: string;
+  };
+};
+
+export const sendAnswerToQuestioner = async (job: Job) => {
   try {
-    const radiusInKm = parseFloat(process.env.RADIUS_OF_CONCERN_IN_KM || '3');
-    const { questionId, questionLon, questionLat, questionerId, questionTitle, questionContent } = job.data;
-    const nearbyUsers = await findNearbyUsers(prisma, questionLon, questionLat, radiusInKm);
-    if (nearbyUsers.length === 0) return;
+    const { questionId, answerContent, responderId } = job.data;
 
-    await Promise.all(
-      nearbyUsers.map(async (user) => {
-        if (user.userId === questionerId) return; // Do not notify a user about their own question
-        if (!user.notificationsEnabled) return;  // Skip if notifications are disabled
+    const responder = await prisma.user.findUnique({ where: { id: responderId } });
+    if (!responder) throw Error(`Responder with id: ${responderId} not found`);
 
-        const payload = {
-          title: questionTitle,
-          body: questionContent,
-          data: { questionId: questionId },
-        };
+    const question = await prisma.question.findUnique({
+      where: {
+        id: questionId,
+      },
+      include: {
+        user: {
+          select: {
+            deviceToken: true,
+            deviceType: true,
+            notificationsEnabled: true
+          },
+        },
+      },
+    }) as QuestionWithUser | null;
+    if (!question || !question.user) {
+      throw new Error('Question or associated user not found');
+    }
 
-        await sendNotification(user.deviceToken, payload);
+    const { user } = question;
+    if (!user.notificationsEnabled) return;
 
-      })
-    );
-
-    console.log(`Question sent to ${nearbyUsers.length} nearby users`);
+    const payload = {
+      title: `Answer: ${question.title}`,
+      body: answerContent,
+      data: {
+        questionId,
+        responderId,
+        responderUsername: responder.username,
+        // responderRatings: responder.ratings.value // include responder rating here
+      }
+    };
+    await sendNotification(user.deviceToken, payload);
   } catch (error) {
     console.error('Failed to send question to nearby users', error);
   }
@@ -60,4 +83,4 @@ export async function findNearbyUsers(prisma: PrismaClient, longitude: number, l
 
 
 
-export default notifyNearbyUsers;
+export default sendAnswerToQuestioner;

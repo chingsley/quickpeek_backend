@@ -23,6 +23,7 @@ describe('Users', () => {
       username: 'testuser',
       deviceType: 'ios',
       deviceToken: 'someDeviceToken',
+      notificationsEnabled: true,
     };
 
     const userPayload = {
@@ -108,6 +109,7 @@ describe('Users', () => {
       username: 'testuser',
       deviceType: 'ios',
       deviceToken: 'someDeviceToken',
+      notificationsEnabled: true,
     };
 
     const loginPayload = {
@@ -163,7 +165,7 @@ describe('Users', () => {
       const token = res.body.data;
       const decoded = jwt.verify(token, JWT_SECRET) as TokenPayload;
       expect(decoded.userId).toEqual(user.id);
-       expect(deviceUpdateQueue.add).toHaveBeenCalledWith({
+      expect(deviceUpdateQueue.add).toHaveBeenCalledWith({
         userId: user.id,
         deviceToken: loginPayload.deviceToken,
         deviceType: loginPayload.deviceType,
@@ -241,6 +243,7 @@ describe('Users', () => {
           username: 'testuser',
           deviceType: 'ios',
           deviceToken: 'someDeviceToken',
+          notificationsEnabled: true,
         },
       });
 

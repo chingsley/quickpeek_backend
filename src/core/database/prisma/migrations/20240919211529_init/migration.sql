@@ -7,6 +7,7 @@ CREATE TABLE "users" (
     "username" TEXT NOT NULL,
     "deviceType" TEXT NOT NULL,
     "deviceToken" TEXT NOT NULL,
+    "notificationsEnabled" BOOLEAN NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 

@@ -8,22 +8,23 @@ datasource db {
 }
 
 model User {
-  id                  String   @id @default(uuid())
-  email               String    @unique
-  password            String
-  name                String
-  username            String   @unique
-  deviceType          String
-  deviceToken         String   // unique identifier for push notifications
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  id                      String   @id @default(uuid())
+  email                   String    @unique
+  password                String
+  name                    String
+  username                String   @unique
+  deviceType              String
+  deviceToken             String   // unique identifier for push notifications
+  notificationsEnabled    Boolean
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
 
-  location            Location?
-  questions           Question[]
-  answers             Answer[]
-  questionerRatings   Rating[] @relation("QuestionerRatings")
-  responderRatings    Rating[] @relation("ResponderRatings")
-  transactions        Transaction[]
+  location                Location?
+  questions               Question[]
+  answers                 Answer[]
+  questionerRatings       Rating[] @relation("QuestionerRatings")
+  responderRatings        Rating[] @relation("ResponderRatings")
+  transactions            Transaction[]
 
   @@map("users")  // This will map the User model to the "users" table in SQL
 }

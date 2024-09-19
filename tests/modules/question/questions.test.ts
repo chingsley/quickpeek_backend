@@ -25,6 +25,7 @@ describe('questions', () => {
           username: 'testuser',
           deviceType: 'ios',
           deviceToken: 'someDeviceToken',
+          notificationsEnabled: true,
         },
       });
 
@@ -131,6 +132,7 @@ describe('questions', () => {
               username: `testuser ${i + 1}`,
               deviceType: i % 2 === 0 ? 'ios' : 'android',
               deviceToken: 'someDeviceToken',
+              notificationsEnabled: true,
               location: {
                 create: {
                   longitude: faker.location.longitude(),
@@ -226,6 +228,7 @@ describe('questions', () => {
               username: `testuser ${i + 1}`,
               deviceType: i % 2 === 0 ? 'ios' : 'android',
               deviceToken: 'someDeviceToken',
+              notificationsEnabled: true,
               location: {
                 create: {
                   longitude: faker.location.longitude(),

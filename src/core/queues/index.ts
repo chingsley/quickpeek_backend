@@ -1,4 +1,4 @@
-import { sendAnswerToQuestioner } from './../jobs/sendAnswerToQuestioner';
+import { sendAnswerToquestionCreator } from './../jobs/sendAnswerToquestionCreator';
 import { deviceUpdateQueue } from './deviceUpdateQueue';
 import { userLocationUpdateQueue } from './userLocationUpdateQueue';
 import { notifyNearbyUsersQueue } from './notifyNearbyUsersQueue';
@@ -8,9 +8,9 @@ import {
   processUserLocationUpdate,
   notifyNearbyUsers
 } from '../jobs';
-import { sendAnswerToQuestionerQueue } from './sendAnswerToQuestionerQueue';
+import { sendAnswerToquestionCreatorQueue } from './sendAnswerToquestionCreatorQueue';
 
 deviceUpdateQueue.process(processDeviceUpdate);
 userLocationUpdateQueue.process(processUserLocationUpdate);
 notifyNearbyUsersQueue.process(notifyNearbyUsers);
-sendAnswerToQuestionerQueue.process(sendAnswerToQuestioner);
+sendAnswerToquestionCreatorQueue.process(sendAnswerToquestionCreator);

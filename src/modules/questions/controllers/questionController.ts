@@ -1,8 +1,9 @@
 import { Request, Response } from 'express';
-import { Prisma, Question } from '@prisma/client'; // Import Prisma types
+// import { Prisma, Question } from '@prisma/client'; // Import Prisma types
 import prisma from '../../../core/database/prisma/client';
 import { notifyNearbyUsersQueue } from '../../../core/queues/notifyNearbyUsersQueue';
-import { sendAnswerToQuestionerQueue } from '../../../core/queues/sendAnswerToQuestionerQueue';
+import { sendAnswerToquestionCreatorQueue } from '../../../core/queues/sendAnswerToQuestionerQueue';
+// import { sendAnswerToquestionCreatorQueue } from '../../../core/queues/sendAnswerToquestionCreatorQueue';
 
 
 export const createQuestion = async (req: Request, res: Response) => {
@@ -22,7 +23,7 @@ export const createQuestion = async (req: Request, res: Response) => {
       questionId: question.id,
       questionLon: questionLon,
       questionLat: questionLat,
-      questionerId: question.userId,
+      questionCreatorId: question.userId,
       questionTitle: title,
       questionContent: content
     });
@@ -63,7 +64,7 @@ export const createAnswerForQuestion = async (req: Request, res: Response) => {
       }
     });
 
-    sendAnswerToQuestionerQueue.add({
+    sendAnswerToquestionCreatorQueue.add({
       questionId,
       answerContent: answer.content,
       responderId: answer.userId,

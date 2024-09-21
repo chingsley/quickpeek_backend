@@ -6,13 +6,13 @@ import { sendNotification } from '../messaging/firebase.push';
 export const notifyNearbyUsers = async (job: Job) => {
   try {
     const radiusInKm = parseFloat(process.env.RADIUS_OF_CONCERN_IN_KM || '3');
-    const { questionId, questionLon, questionLat, questionerId, questionTitle, questionContent } = job.data;
+    const { questionId, questionLon, questionLat, questionCreatorId, questionTitle, questionContent } = job.data;
     const nearbyUsers = await findNearbyUsers(prisma, questionLon, questionLat, radiusInKm);
     if (nearbyUsers.length === 0) return;
 
     await Promise.all(
       nearbyUsers.map(async (user) => {
-        if (user.userId === questionerId) return; // Do not notify a user about their own question
+        if (user.userId === questionCreatorId) return; // Do not notify a user about their own question
         if (!user.notificationsEnabled) return;  // Skip if notifications are disabled
 
         const payload = {

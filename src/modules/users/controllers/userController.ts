@@ -16,17 +16,13 @@ const BCRYPT_SALT_ROUND = config.bcryptSaltRound!;
 
 export const registerUser = async (req: Request, res: Response) => {
   try {
-    const { name, username, email, password, deviceType, deviceToken, longitude, latitude } = req.body;
+    const { password, longitude, latitude, ...rest } = req.body;
     const hashedPassword = await bcrypt.hash(password, parseInt(BCRYPT_SALT_ROUND));
 
     const newUser = await prisma.user.create({
       data: {
-        name,
-        username,
-        email,
+        ...rest,
         password: hashedPassword,
-        deviceType,
-        deviceToken,
       },
     });
 

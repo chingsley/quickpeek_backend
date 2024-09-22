@@ -11,7 +11,7 @@ type QuestionWithUser = Question & {
   };
 };
 
-export const sendAnswerToQuestioner = async (job: Job) => {
+export const sendAnswerToquestionCreator = async (job: Job) => {
   try {
     const { questionId, answerContent, responderId } = job.data;
 
@@ -83,4 +83,4 @@ export async function findNearbyUsers(prisma: PrismaClient, longitude: number, l
 
 
 
-export default sendAnswerToQuestioner;
+export default sendAnswerToquestionCreator;

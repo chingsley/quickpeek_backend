@@ -18,11 +18,12 @@ const prisma = new PrismaClient();
 
 const seedTestData = async () => {
   // Clear existing data
-  await prisma.rating.deleteMany({});
+  await prisma.answerRating.deleteMany({});
   await prisma.answer.deleteMany({});
   await prisma.question.deleteMany({});
   await prisma.transaction.deleteMany({});
   await prisma.location.deleteMany({});
+  await prisma.userRating.deleteMany({});
   await prisma.user.deleteMany({});
 
   // Create a central point for the questions to be close to
@@ -88,26 +89,15 @@ const seedTestData = async () => {
           questionId: questions[qnIdx].id,
           content: `answer ${answerIdx} to question ${qnIdx}`,
           userId: users[i + 5].id,
+          rating: { // creating the answerRating. We call it 'rating' here because in answer schema we difined the relationship as: "rating     AnswerRating?"
+            create: {
+              rating: faker.number.int({ min: 1, max: 5 }), // Generate a random rating between 1 and 5
+              feedback: faker.string.alpha({ length: 20 }) // Generate random 20 character string
+            }
+          }
         },
       });
       return answer;
-    })
-  );
-
-  // Create 10 ratings, correspoinding to each answer
-  await Promise.all(
-    Array.from({ length: answers.length }, async (_, i) => {
-      const question = questions[i % questions.length];
-      const rating = await prisma.rating.create({
-        data: {
-          questionId: question.id,
-          questionerId: question.userId, // rater
-          responderId: answers[i].userId,    // ratee
-          rating: faker.number.int({ min: 1, max: 5 }), // Generate a random rating between 1 and 5
-          feedback: faker.string.alpha({ length: 20 }) // Generate random 20 character string
-        },
-      });
-      return rating;
     })
   );
 };

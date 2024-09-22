@@ -1,6 +1,7 @@
 import { Job } from 'bull';
 import prisma from '../../../src/core/database/prisma/client';
-import * as notifications from '../../../src/core/jobs/notifyNearbyUsersJob'; // Adjust the path as needed
+import * as notifyNearbyUsersJob from '../../../src/core/jobs/notifyNearbyUsersJob'; // Adjust the path as needed
+import * as fbPushMsg from '../../../src/core/messaging/firebase.push';
 import { calculateHaversineDistance } from '../../../src/common/utils/geo';
 import seedTestData from '../../seed/notifyNearbyUsers.test.seed';
 import clearAllSeed from '../../seed/clear.seed';
@@ -38,7 +39,7 @@ describe('Notification System', () => {
       const [longitude, latitude] = question.location.split(', ').map(Number);
       const radiusInKm = 10;
 
-      const nearbyUsers = await notifications.findNearbyUsers(prisma, longitude, latitude, radiusInKm);
+      const nearbyUsers = await notifyNearbyUsersJob.findNearbyUsers(prisma, longitude, latitude, radiusInKm);
       expect(nearbyUsers.length).toBeGreaterThanOrEqual(1);
       for (const u of nearbyUsers) {
         const distance = calculateHaversineDistance(latitude, longitude, u.latitude, u.longitude);
@@ -50,22 +51,22 @@ describe('Notification System', () => {
   });
 
   it.skip('should call the sendNotification function', async () => {
-    const sendNotificationSpy = jest.spyOn(notifications, 'sendNotification').mockResolvedValue(Promise.resolve());
+    const sendNotificationSpy = jest.spyOn(fbPushMsg, 'sendNotification').mockResolvedValue('');
     const question = await prisma.question.findFirst();
     const [longitude, latitude] = question!.location.split(', ').map(Number);
     const radiusInKm = 10;
-    await notifications.notifyNearbyUsers({
+    await notifyNearbyUsersJob.notifyNearbyUsers({
       data: {
         questionId: question!.id,
         questionTitle: question!.title,
         questionContent: question!.content,
-        questionerId: question!.userId,
+        questionCreatorId: question!.userId,
         questionLon: longitude,
         questionLat: latitude,
       }
     } as Job);
 
-    const nearbyUsers = await notifications.findNearbyUsers(prisma, longitude, latitude, radiusInKm);
+    const nearbyUsers = await notifyNearbyUsersJob.findNearbyUsers(prisma, longitude, latitude, radiusInKm);
 
     expect(sendNotificationSpy).toHaveBeenCalledTimes(nearbyUsers.length);
     sendNotificationSpy.mockRestore();
@@ -83,7 +84,7 @@ describe('Notification System', () => {
 
     const [longitude, latitude] = farQuestion.location.split(', ').map(Number);
     const radiusInKm = 10;
-    const nearbyUsers = await notifications.findNearbyUsers(prisma, longitude, latitude, radiusInKm);
+    const nearbyUsers = await notifyNearbyUsersJob.findNearbyUsers(prisma, longitude, latitude, radiusInKm);
     expect(nearbyUsers.length).toBe(0);
   });
 });

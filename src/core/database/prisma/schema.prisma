@@ -8,23 +8,22 @@ datasource db {
 }
 
 model User {
-  id                      String   @id @default(uuid())
-  email                   String    @unique
-  password                String
-  name                    String
-  username                String   @unique
-  deviceType              String
-  deviceToken             String   // unique identifier for push notifications
-  notificationsEnabled    Boolean
-  createdAt               DateTime  @default(now())
-  updatedAt               DateTime  @updatedAt
+  id                           String         @id @default(uuid())
+  email                        String         @unique
+  password                     String
+  name                         String
+  username                     String         @unique
+  deviceType                   String
+  deviceToken                  String         // unique identifier for push notifications
+  notificationsEnabled         Boolean
+  createdAt                    DateTime       @default(now())
+  updatedAt                    DateTime       @updatedAt
 
-  location                Location?
-  questions               Question[]
-  answers                 Answer[]
-  questionerRatings       Rating[] @relation("QuestionerRatings")
-  responderRatings        Rating[] @relation("ResponderRatings")
-  transactions            Transaction[]
+  location                     Location?
+  questions                    Question[]
+  answers                      Answer[]
+  rating                       UserRating?
+  transactions                 Transaction[]
 
   @@map("users")  // This will map the User model to the "users" table in SQL
 }
@@ -37,7 +36,7 @@ model Location {
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
-  user                 User      @relation(fields: [userId], references: [id])
+  user                User      @relation(fields: [userId], references: [id])
 
   @@map("locations")  // This will map the Location model to the "locations" table in SQL
 }
@@ -48,55 +47,65 @@ model Question {
   content                 String
   location                String  // coordinates of the place the user is asking about, e.g: 
   userId                  String
-  answers                 Answer[]
-  ratings                 Rating[]  // Inverse relation added here
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
 
-  user                    User      @relation(fields: [userId], references: [id])
+  answers                 Answer[]
+  user                    User            @relation(fields: [userId], references: [id])
 
   @@map("questions")  // This will map the Question model to the "questions" table in SQL
 }
 
 model Answer {
-  id        String   @id @default(uuid())
+  id         String          @id @default(uuid())
   content    String
   questionId String
   userId     String
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
 
-  question Question @relation(fields: [questionId], references: [id])
-  user     User     @relation(fields: [userId], references: [id])
+  question   Question        @relation(fields: [questionId], references: [id])
+  user       User            @relation(fields: [userId], references: [id])
+  rating     AnswerRating?
 
   @@map("answers")  // This will map the Answer model to the "answers" table in SQL
 }
 
 model Transaction {
-  id         String   @id @default(uuid())
+  id         String        @id @default(uuid())
   amount     Float
   userId     String
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  user       User     @relation(fields: [userId], references: [id])
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  user       User          @relation(fields: [userId], references: [id])
 
   @@map("transactions")  // This will map the Transaction model to the "transactions" table in SQL
 }
 
-// questioner rates a responder's response to a question
-model Rating {
-  id               String      @id @default(uuid())
-  questionId       String
-  questionerId     String      // id of the person (the questioner) that rates a responder
-  responderId      String      // id of the person (the responder) that is being rated
-  rating           Int         @default(0)
-  feedback         String?     // optional field
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
+// questionCreator rates a responder's answer to a question
+model AnswerRating {
+  id                    String      @id @default(uuid())
+  answerId              String      @unique
+  rating                Int         // min 0, max 5
+  feedback              String?     // optional field
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
 
-  questioner       User        @relation("QuestionerRatings", fields: [questionerId], references: [id]) // the person (the questioner) that rates a responder
-  responder        User        @relation("ResponderRatings", fields: [responderId],  references: [id]) // the person (the responder) that is being rated
-  question         Question    @relation(fields: [questionId],  references: [id])   // Optional relation
+  answer                Answer      @relation(fields: [answerId],  references: [id])   // Optional relation
 
-  @@map("ratings")  // This will map the Rating model to the "ratings" table in SQL
+  @@map("answer_ratings")  // This will map the AnswerRating model to the "answer_ratings" table in SQL
+}
+
+
+model UserRating {
+  id                    String      @id @default(uuid())
+  userId                String      @unique      
+  totalRating           Int         // min 0, max 5
+  answersCount          Int
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+
+  user                  User       @relation(fields: [userId], references: [id])
+
+  @@map("user_ratings")  // This will map the UserRating model to the "user_ratings" table in SQL
 }

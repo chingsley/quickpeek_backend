@@ -63,17 +63,27 @@ CREATE TABLE "transactions" (
 );
 
 -- CreateTable
-CREATE TABLE "ratings" (
+CREATE TABLE "answer_ratings" (
     "id" TEXT NOT NULL,
-    "questionId" TEXT NOT NULL,
-    "questionerId" TEXT NOT NULL,
-    "responderId" TEXT NOT NULL,
-    "rating" INTEGER NOT NULL DEFAULT 0,
+    "answerId" TEXT NOT NULL,
+    "rating" INTEGER NOT NULL,
     "feedback" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
-    CONSTRAINT "ratings_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "answer_ratings_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "user_ratings" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "totalRating" INTEGER NOT NULL,
+    "answersCount" INTEGER NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "user_ratings_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateIndex
@@ -84,6 +94,12 @@ CREATE UNIQUE INDEX "users_username_key" ON "users"("username");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "locations_userId_key" ON "locations"("userId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "answer_ratings_answerId_key" ON "answer_ratings"("answerId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "user_ratings_userId_key" ON "user_ratings"("userId");
 
 -- AddForeignKey
 ALTER TABLE "locations" ADD CONSTRAINT "locations_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -101,10 +117,7 @@ ALTER TABLE "answers" ADD CONSTRAINT "answers_userId_fkey" FOREIGN KEY ("userId"
 ALTER TABLE "transactions" ADD CONSTRAINT "transactions_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "ratings" ADD CONSTRAINT "ratings_questionerId_fkey" FOREIGN KEY ("questionerId") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "answer_ratings" ADD CONSTRAINT "answer_ratings_answerId_fkey" FOREIGN KEY ("answerId") REFERENCES "answers"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "ratings" ADD CONSTRAINT "ratings_responderId_fkey" FOREIGN KEY ("responderId") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "ratings" ADD CONSTRAINT "ratings_questionId_fkey" FOREIGN KEY ("questionId") REFERENCES "questions"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "user_ratings" ADD CONSTRAINT "user_ratings_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

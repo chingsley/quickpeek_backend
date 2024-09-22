@@ -16,11 +16,12 @@ const generateRandomLocationWithinRadius = (longitude: number, latitude: number,
 
 const seedTestData = async (prisma: PrismaClient) => {
   // Clear existing data
-  await prisma.rating.deleteMany({});
+  await prisma.answerRating.deleteMany({});
   await prisma.answer.deleteMany({});
   await prisma.question.deleteMany({});
   await prisma.transaction.deleteMany({});
   await prisma.location.deleteMany({});
+  await prisma.userRating.deleteMany({});
   await prisma.user.deleteMany({});
 
   // Create a central point for the questions to be close to
@@ -41,6 +42,7 @@ const seedTestData = async (prisma: PrismaClient) => {
           username: faker.internet.userName(),
           deviceType: i % 2 === 0 ? 'ios' : 'android',
           deviceToken: faker.string.uuid(),
+          notificationsEnabled: true,
           location: {
             create: {
               longitude: userLocation.longitude,

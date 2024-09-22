@@ -17,7 +17,7 @@ QuickPeek is a location-based service that allows users to check the availabilit
 - **Real-time Information:** Users can ask and respond to questions about the current state of vendors (availability, queue length, open/closed status).
 - **Rewards for Responders:** Users who provide timely and accurate answers receive rewards.
 - **Push Notifications:** Location-based notifications alert users when there's relevant activity near them.
-- **User Ratings:** Questioners can rate the quality of responses they receive, helping to maintain the integrity of information.
+- **User Ratings:** Question Creators can rate the quality of responses they receive, helping to maintain the integrity of information.
 
 ---
 

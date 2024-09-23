@@ -2,8 +2,7 @@ import { Request, Response } from 'express';
 // import { Prisma, Question } from '@prisma/client'; // Import Prisma types
 import prisma from '../../../core/database/prisma/client';
 import { notifyNearbyUsersQueue } from '../../../core/queues/notifyNearbyUsersQueue';
-import { sendAnswerToquestionCreatorQueue } from '../../../core/queues/sendAnswerToQuestionerQueue';
-// import { sendAnswerToquestionCreatorQueue } from '../../../core/queues/sendAnswerToquestionCreatorQueue';
+import { sendAnswerToquestionCreatorQueue } from '../../../core/queues/sendAnswerToQuestionCreatorQueue';
 
 
 export const createQuestion = async (req: Request, res: Response) => {

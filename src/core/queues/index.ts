@@ -1,16 +1,19 @@
-import { sendAnswerToquestionCreator } from './../jobs/sendAnswerToquestionCreator';
 import { deviceUpdateQueue } from './deviceUpdateQueue';
 import { userLocationUpdateQueue } from './userLocationUpdateQueue';
 import { notifyNearbyUsersQueue } from './notifyNearbyUsersQueue';
+import { sendAnswerToquestionCreatorQueue } from './sendAnswerToQuestionCreatorQueue';
+import { userRatingsUpdateQueue } from './userRatingsUpdateQueue';
 
 import {
   processDeviceUpdate,
   processUserLocationUpdate,
-  notifyNearbyUsers
+  notifyNearbyUsers,
+  sendAnswerToQuestionCreator,
+  processUserRatings,
 } from '../jobs';
-import { sendAnswerToquestionCreatorQueue } from './sendAnswerToquestionCreatorQueue';
 
 deviceUpdateQueue.process(processDeviceUpdate);
 userLocationUpdateQueue.process(processUserLocationUpdate);
 notifyNearbyUsersQueue.process(notifyNearbyUsers);
-sendAnswerToquestionCreatorQueue.process(sendAnswerToquestionCreator);
+sendAnswerToquestionCreatorQueue.process(sendAnswerToQuestionCreator);
+userRatingsUpdateQueue.process(processUserRatings);

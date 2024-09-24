@@ -2,9 +2,9 @@ import { Job } from 'bull';
 import prisma from '../database/prisma/client';
 
 const processUserRating = async (job: Job) => {
-  const { userId, rating } = job.data;
-
   try {
+    const { userId, rating } = job.data;
+
     await prisma.$executeRaw`BEGIN TRANSACTION`;
     const currentRating = await prisma.userRating.findUnique({ where: { userId } });
     if (!currentRating) {
@@ -20,7 +20,6 @@ const processUserRating = async (job: Job) => {
       where: { userId },
       data: { totalRating, answersCount }
     });
-
     await prisma.$executeRaw`COMMIT TRANSACTION`;
     console.log(`Updated rating for user ${userId}`);
   } catch (error) {

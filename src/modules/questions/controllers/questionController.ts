@@ -18,7 +18,7 @@ export const createQuestion = async (req: Request, res: Response) => {
     });
 
     const [questionLon, questionLat] = location.split(',').map(Number);
-    notifyNearbyUsersQueue.add({
+    await notifyNearbyUsersQueue.add({
       questionId: question.id,
       questionLon: questionLon,
       questionLat: questionLat,
@@ -63,7 +63,7 @@ export const createAnswerForQuestion = async (req: Request, res: Response) => {
       }
     });
 
-    sendAnswerToquestionCreatorQueue.add({
+    await sendAnswerToquestionCreatorQueue.add({
       questionId,
       answerContent: answer.content,
       responderId: answer.userId,

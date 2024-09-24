@@ -70,7 +70,7 @@ export const loginUser = async (req: Request, res: Response) => {
     }
 
     const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '1h' });
-    deviceUpdateQueue.add({
+    await deviceUpdateQueue.add({
       userId: user.id,
       deviceType,
       deviceToken,
@@ -87,7 +87,7 @@ export const updateUserLocation = async (req: Request, res: Response) => {
     const { longitude, latitude } = req.body;
     // implemented asynchronously using bull by publishing it to a queue
     // this is because this endpoint will potentially be called by many users every 5 minutes
-    userLocationUpdateQueue.add({
+    await userLocationUpdateQueue.add({
       userId: req.user!.userId,
       longitude,
       latitude,

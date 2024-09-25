@@ -2,7 +2,7 @@ import { Job } from 'bull';
 import prisma from '../database/prisma/client';
 
 const processUserRating = async (job: Job) => {
-  // console.log('\n....... execution job.....\n', job);
+  // console.log('\n....... execution job.....\n', job.data);
   try {
     const { userId, rating } = job.data;
 

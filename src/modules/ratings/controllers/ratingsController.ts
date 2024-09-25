@@ -52,7 +52,6 @@ export const rateAnswer = async (req: Request, res: Response) => {
       data: answerRating,
     });
   } catch (error) {
-    console.error('\n>>>>>>>>', error);
     res.status(500).json({ error: 'Failed to create answer rating' });
   }
 };

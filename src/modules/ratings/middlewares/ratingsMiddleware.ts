@@ -4,7 +4,8 @@ import Joi from 'joi';
 export const validateAnswerRatingsCreation = (req: Request, res: Response, next: NextFunction) => {
   const schema = Joi.object({
     answerId: Joi.string().required(),
-    rating: Joi.number().integer().min(1).max(5)
+    rating: Joi.number().integer().min(1).max(5).required(),
+    feedback: Joi.string(),
   });
 
   const { error } = schema.validate(req.body);

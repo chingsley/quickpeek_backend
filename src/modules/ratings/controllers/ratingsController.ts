@@ -6,7 +6,7 @@ import { userRatingsUpdateQueue } from '../../../core/queues/userRatingsUpdateQu
 
 export const rateAnswer = async (req: Request, res: Response) => {
   try {
-    const { answerId, rating } = req.body;
+    const { answerId, rating, feedback } = req.body;
 
     const answer = await prisma.answer.findUnique({
       where: { id: answerId },
@@ -39,9 +39,9 @@ export const rateAnswer = async (req: Request, res: Response) => {
     }
 
     const answerRating = await prisma.answerRating.create({
-      data: { answerId, rating }
+      data: { answerId, rating, feedback }
     });
-    console.log('adding data to queue...');
+
     await userRatingsUpdateQueue.add({
       userId: answer.user.id,
       rating

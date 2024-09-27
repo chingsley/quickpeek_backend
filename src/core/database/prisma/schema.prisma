@@ -22,7 +22,7 @@ model User {
   location                     Location?
   questions                    Question[]
   answers                      Answer[]
-  rating                       UserRating?
+  userRating                   UserRating?
   transactions                 Transaction[]
 
   @@map("users")  // This will map the User model to the "users" table in SQL
@@ -57,16 +57,16 @@ model Question {
 }
 
 model Answer {
-  id         String          @id @default(uuid())
-  content    String
-  questionId String
-  userId     String
-  createdAt  DateTime        @default(now())
-  updatedAt  DateTime        @updatedAt
+  id             String          @id @default(uuid())
+  content        String
+  questionId     String
+  userId         String
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
 
-  question   Question        @relation(fields: [questionId], references: [id])
-  user       User            @relation(fields: [userId], references: [id])
-  rating     AnswerRating?
+  question       Question        @relation(fields: [questionId], references: [id])
+  user           User            @relation(fields: [userId], references: [id])
+  answerRating   AnswerRating?
 
   @@map("answers")  // This will map the Answer model to the "answers" table in SQL
 }

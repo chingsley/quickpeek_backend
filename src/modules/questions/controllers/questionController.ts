@@ -1,3 +1,4 @@
+import { Answer } from '@prisma/client';
 import { Request, Response } from 'express';
 // import { Prisma, Question } from '@prisma/client'; // Import Prisma types
 import prisma from '../../../core/database/prisma/client';
@@ -74,6 +75,53 @@ export const createAnswerForQuestion = async (req: Request, res: Response) => {
     });
   } catch (error) {
     res.status(500).json({ error: 'Failed to create answer' });
+  }
+};
+
+export const getAnswersByQuestionId = async (req: Request, res: Response) => {
+  try {
+    const { questionId } = req.params;
+    const userId = req.user!.userId;
+    type AnswerWithUserRating = Answer & {
+      user: {
+        id: string;
+        username: string;
+        userRating: {
+          totalRating: number;
+          answersCount: number;
+        };
+      };
+    };
+    const answersWithUserAndRating = await prisma.answer.findMany({
+      where: {
+        questionId,
+        question: {
+          userId: userId,  // Filter to only include questions created by the requesting user
+        },
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            username: true,
+            userRating: {
+              select: {
+                totalRating: true,
+                answersCount: true,
+              },
+            },
+          },
+        },
+      },
+    }) as AnswerWithUserRating[];
+
+
+    return res.status(200).json({
+      message: 'successful',
+      data: answersWithUserAndRating,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: 'Failed to get question. Internal service error.' });
   }
 };
 

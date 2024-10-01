@@ -90,7 +90,7 @@ const seedTestData = async () => {
           questionId: questions[qnIdx].id,
           content: `answer ${answerIdx} to question ${qnIdx}`,
           userId: users[i + 5].id,
-          answerRating: { // creating the answerRating. We call it 'rating' here because in answer schema we difined the relationship as: "rating     AnswerRating?"
+          answerRating: { // creating the answerRating
             create: {
               rating: faker.number.int({ min: 1, max: 5 }), // Generate a random rating between 1 and 5
               feedback: faker.string.alpha({ length: 20 }) // Generate random 20 character string

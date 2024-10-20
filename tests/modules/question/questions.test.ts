@@ -272,7 +272,6 @@ describe('questions', () => {
         .post(`/api/v1/questions/${question.id}/answer`)
         .set('Authorization', `Bearer ${user2Token}`)
         .send({
-          questionId: question.id,
           content: 'about 17 cars'
         });
 
@@ -285,7 +284,7 @@ describe('questions', () => {
         content: 'about 17 cars'
       };
       await Promise.all(
-        Array.from(['questionId', 'content'], async field => {
+        Array.from(['content'], async field => {
           const response = await request(app)
             .post(`/api/v1/questions/${question.id}/answer`)
             .set('Authorization', `Bearer ${user2Token}`)

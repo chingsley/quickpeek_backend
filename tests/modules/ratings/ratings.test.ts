@@ -6,6 +6,7 @@ import { faker } from '@faker-js/faker';
 import prisma from "../../../src/core/database/prisma/client";
 import app from '../../../src/app';
 import clearAllSeed from '../../seed/clear.seed';
+import { delayInSeconds } from '../../../src/common/utils/time.utils';
 
 
 import { userRatingsUpdateQueue } from "../../../src/core/queues/userRatingsUpdateQueue";
@@ -103,6 +104,7 @@ describe('User Ratings', () => {
       expect(response.body.data).toHaveProperty('answerId', answer1.id);
       expect(response.body.data).toHaveProperty('rating', RATING_VALUE_1);
 
+      await delayInSeconds(2);
       const userRating = await prisma.userRating.findUnique({ where: { userId: responder.id } });
       expect(userRating).not.toBe(null);
       expect(userRating!.userId).toEqual(responder.id);
@@ -128,6 +130,7 @@ describe('User Ratings', () => {
       expect(response.body.data).toHaveProperty('answerId', answer2.id);
       expect(response.body.data).toHaveProperty('rating', RATING_VALUE_2);
 
+      await delayInSeconds(2);
       const userRating = await prisma.userRating.findUnique({ where: { userId: responder.id } });
       expect(userRating).not.toBe(null);
       expect(userRating!.userId).toEqual(responder.id);

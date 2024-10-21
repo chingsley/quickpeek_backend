@@ -55,7 +55,8 @@ export const getAllQuestionsByUserId = async (req: Request, res: Response) => {
 
 export const createAnswerForQuestion = async (req: Request, res: Response) => {
   try {
-    const { questionId, content } = req.body;
+    const { content } = req.body;
+    const questionId = req.params.questionId;
     const answer = await prisma.answer.create({
       data: {
         questionId,
@@ -96,15 +97,15 @@ export const getAnswersByQuestionId = async (req: Request, res: Response) => {
       where: {
         questionId,
         question: {
-          userId: userId,  // Filter to only include questions created by the requesting user
+          userId,  // Filter to only include questions created by the requesting user
         },
       },
       include: {
-        user: {
+        user: { // the responder
           select: {
             id: true,
             username: true,
-            userRating: {
+            userRating: { // responder's rating
               select: {
                 totalRating: true,
                 answersCount: true,

@@ -16,7 +16,7 @@ export const validateQuestionCreation = (req: Request, res: Response, next: Next
 
 export const validateAnswerCreation = (req: Request, res: Response, next: NextFunction) => {
   const schema = Joi.object({
-    questionId: Joi.string().required(),
+    // questionId: Joi.string().required(),
     content: Joi.string().required(),
   });
 

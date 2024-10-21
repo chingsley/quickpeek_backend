@@ -10,6 +10,6 @@ router.post('/login', validateUserLogin, loginUser);
 router.post('/location', authenticateToken, validateUserLocation, updateUserLocation);
 // other endpoints:
 // user can view their profile:
-// user can update their profile: change username (maybe), change notificationsEnabled, etc
+// user can update their profile: change username (maybe), change notificationsEnabled, locationSharingEnabled, etc
 
 export default router;

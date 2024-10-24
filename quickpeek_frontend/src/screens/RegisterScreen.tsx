@@ -1,5 +1,3 @@
-// src/pages/Register.tsx
-
 import React, { useState } from 'react';
 import { useDispatch } from 'react-redux';
 import { View, Text, TextInput, Button, Alert, StyleSheet } from 'react-native';
@@ -9,7 +7,7 @@ import Constants from 'expo-constants';
 import { registerUser as registerUserService } from '../services/auth'; // Update to use axios config
 import { registerUser } from '../store/slices/userSlice';
 
-const Register = () => {
+export const RegisterScreen = () => {
   const dispatch = useDispatch();
   const [formData, setFormData] = useState({
     name: '',
@@ -103,6 +101,7 @@ const styles = StyleSheet.create({
     padding: 16,
     backgroundColor: '#fff',
     flex: 1,
+    justifyContent: 'center'
   },
   headerText: {
     fontSize: 24,
@@ -116,5 +115,3 @@ const styles = StyleSheet.create({
     borderColor: '#ccc',
   },
 });
-
-export default Register;

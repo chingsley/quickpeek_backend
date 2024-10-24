@@ -1,7 +1,7 @@
 // App.tsx
 import React, { useEffect } from 'react';
-import { NavigationContainer } from '@react-navigation/native';
-import { StatusBar } from 'expo-status-bar';
+// import { NavigationContainer } from '@react-navigation/native';
+// import { StatusBar } from 'expo-status-bar';
 import * as Notifications from 'expo-notifications';
 import * as Location from 'expo-location';
 import AppNavigator from './src/navigation/AppNavigator'; // Navigation setup
@@ -36,10 +36,10 @@ const App = () => {
 
   return (
     <Provider store={store}>
-      <NavigationContainer>
-        <StatusBar style="auto" />
-        <AppNavigator />
-      </NavigationContainer>
+      {/* <NavigationContainer> */}
+      {/* <StatusBar style="auto" /> */}
+      <AppNavigator />
+      {/* </NavigationContainer> */}
     </Provider>
   );
 };

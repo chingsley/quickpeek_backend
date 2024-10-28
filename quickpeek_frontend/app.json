@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "quickpeek_frontend",
-    "slug": "quickpeek_frontend",
+    "slug": "quickpeek",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -31,6 +31,15 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "83eb8615-b904-4d52-ac2c-fd4d498ff6d2"
+      }
+    },
+    "packagerOpts": {
+      "sourceExts": ["js", "json", "ts", "tsx", "jsx"]
+    },
+    "owner": "chingsley"
   }
 }

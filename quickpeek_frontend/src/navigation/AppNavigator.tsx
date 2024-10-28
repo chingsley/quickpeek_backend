@@ -16,7 +16,7 @@ export default function AppNavigator() {
     <NavigationContainer>
       <StatusBar style="auto" />
       <NavigationBar />
-      <Stack.Navigator initialRouteName="Login">
+      <Stack.Navigator initialRouteName="Register">
         <Stack.Screen name="Login" component={LoginScreen} />
         <Stack.Screen name="Register" component={RegisterScreen} />
         <Stack.Screen name="Profile" component={ProfileScreen} />

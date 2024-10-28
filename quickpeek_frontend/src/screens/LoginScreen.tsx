@@ -1,53 +1,93 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, Button, StyleSheet } from 'react-native';
+import { useDispatch, useSelector } from 'react-redux';
+import { View, Text, TextInput, Alert, StyleSheet } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import Constants from 'expo-constants';
+import * as Notifications from 'expo-notifications';
+import { AppDispatch, RootState } from '../store';
+import { loginUser as loginUserService } from '../services/auth'; // Update to use axios config
+import { login } from '../store/slices/authSlice';
+import { setLoading } from '../store/slices/loadingSlice';
 import { LoginScreenNavigationProp } from '../navigation/types';
+import { CustomButton } from '../components';
 
 export const LoginScreen = () => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const dispatch = useDispatch<AppDispatch>();
   const navigation = useNavigation<LoginScreenNavigationProp>();
+  const isLoading = useSelector((state: RootState) => state.loading.isLoading);
+  const [formData, setFormData] = useState({
+    email: 'chingsleychinonso@gmail.com',
+    password: 'SecurePassword',
+    deviceType: 'ios',
+    deviceToken: 'dummyToken'
+  });
+
+  const handleChange = (name: string, value: string) => {
+    setFormData({
+      ...formData,
+      [name]: value,
+    });
+  };
 
   const handleLogin = async () => {
     try {
-      const response = await fetch('http://localhost:3000/api/v1/users/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password, deviceType: 'ios', deviceToken: 'dummyToken' }),
-      });
+      const deviceType = Constants.platform?.ios ? 'ios' : 'android';
 
-      const data = await response.json();
-      if (response.ok) {
-        // Navigate to Profile page
-        navigation.navigate('Profile');
-      } else {
-        alert(data.message);
-      }
+      // Get notification permissions and device token
+      const { status: notifStatus } = await Notifications.getPermissionsAsync();
+      console.log(Constants.expoConfig?.extra?.eas?.projectId);
+      const deviceToken = notifStatus === 'granted'
+        ? (await Notifications.getExpoPushTokenAsync({
+          projectId: Constants.expoConfig?.extra?.eas?.projectId,
+        })).data
+        : '';
+
+      const payload = { ...formData, deviceType, deviceToken };
+      const response = await loginUserService(payload);
+      console.log('\n.......... login response = ', response.data);
+      dispatch(login(response.data));
+      navigation.navigate('QuestionCreation' as never);
     } catch (error) {
-      alert('Login failed');
+      // alert('Login failed');
+      console.log('error.resopnse:', error.response?.data);
+      if (error.response) {
+        // Log the specific error message from the backend
+        console.log('API error message:', error.response.data);
+        Alert.alert('Error', error.response.data.error);
+      } else {
+        console.log('Unexpected error:', error);
+        Alert.alert('Error', 'Failed to login');
+      }
+    } finally {
+      dispatch(setLoading(false));
     }
   };
+
+  const allFieldsFilled = formData.email &&
+    formData.password;
 
   return (
     <View style={styles.container}>
       <Text>Email</Text>
       <TextInput
         style={styles.input}
-        value={email}
-        onChangeText={setEmail}
+        value={formData.email}
+        onChangeText={(value) => handleChange('email', value)}
         placeholder="Enter email"
       />
       <Text>Password</Text>
       <TextInput
         style={styles.input}
-        value={password}
-        onChangeText={setPassword}
+        value={formData.password}
+        onChangeText={(value) => handleChange('password', value)}
         secureTextEntry
         placeholder="Enter password"
       />
-      <Button title="Login" onPress={handleLogin} />
+      <CustomButton
+        title="Login"
+        onPress={handleLogin}
+        disabled={!allFieldsFilled || isLoading}
+      />
     </View>
   );
 };

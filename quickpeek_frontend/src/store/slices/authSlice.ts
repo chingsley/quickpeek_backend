@@ -3,7 +3,14 @@ import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 
 interface AuthState {
   isLoggedIn: boolean;
-  user: { name: string; email: string; deviceToken: string; location: { latitude: number, longitude: number; }; notificationsEnabled: boolean; } | null;
+  user: {
+    name: string;
+    email: string;
+    deviceType: string;
+    deviceToken?: string;
+    location?: { latitude: number, longitude: number; };
+    notificationsEnabled: boolean;
+  } | null;
   token: string | null;
 }
 
@@ -17,13 +24,15 @@ const authSlice = createSlice({
   name: 'auth',
   initialState,
   reducers: {
-    login: (state, action: PayloadAction<AuthState['user']>) => {
+    login: (state, action: PayloadAction<{ user: AuthState['user'], token: string; }>) => {
       state.isLoggedIn = true;
-      state.user = action.payload;
+      state.user = action.payload.user;
+      state.token = action.payload.token;
     },
     logout: (state) => {
       state.isLoggedIn = false;
       state.user = null;
+      state.token = null;
     },
   },
 });

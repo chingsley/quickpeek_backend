@@ -3,7 +3,7 @@ import Constants from 'expo-constants';
 import store from '../store';
 
 const api = axios.create({
-  baseURL: Constants.manifest?.extra?.apiBaseUrl || 'https://your-backend-api-url.com/api/v1', // TODO: update with backend url
+  baseURL: 'http://172.20.10.2:3000/api/v1', // TODO: update with backend url
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',

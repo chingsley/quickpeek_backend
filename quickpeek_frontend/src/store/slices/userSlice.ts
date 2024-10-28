@@ -1,24 +1,26 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 
 interface UserState {
+  id: string;
   name: string;
   username: string;
   email: string;
   deviceType: string;
   deviceToken: string;
-  locationSharingEnabled: boolean;
+  // locationSharingEnabled: boolean;
   notificationsEnabled: boolean;
   latitude?: number;
   longitude?: number;
 }
 
 const initialState: UserState = {
+  id: '',
   name: '',
   username: '',
   email: '',
   deviceType: '',
   deviceToken: '',
-  locationSharingEnabled: true,
+  // locationSharingEnabled: true,
   notificationsEnabled: true,
 };
 

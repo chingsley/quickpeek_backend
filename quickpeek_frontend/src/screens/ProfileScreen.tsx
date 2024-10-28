@@ -7,14 +7,14 @@ export const ProfileScreen = () => {
   useEffect(() => {
     // Fetch user's profile data
     const fetchProfile = async () => {
-      const response = await fetch('http://localhost:3000/api/v1/users', {
-        method: 'GET',
-        headers: {
-          'Authorization': 'Bearer <user_token_here>',
-        },
-      });
-      const data = await response.json();
-      setProfile(data);
+      // const response = await fetch('http://localhost:3000/api/v1/users', {
+      //   method: 'GET',
+      //   headers: {
+      //     'Authorization': 'Bearer <user_token_here>',
+      //   },
+      // });
+      // const data = await response.json();
+      // setProfile(data);
     };
 
     fetchProfile();

@@ -1,4 +1,5 @@
 import express, { Request, Response, NextFunction } from 'express';
+import cors from 'cors';
 import questionRoutes from './modules/questions/routes/questionRoutes';
 import healthRoutes from './api/routes/healthRoute';
 import userRoutes from './modules/users/routes/userRoutes';
@@ -7,6 +8,7 @@ import ratingsRoutes from './modules/ratings/routes/ratingsRoutes';
 const app = express();
 
 app.use(express.json());
+app.use(cors());
 
 app.use('/api/v1/health', healthRoutes);
 app.use('/api/v1/questions', questionRoutes);

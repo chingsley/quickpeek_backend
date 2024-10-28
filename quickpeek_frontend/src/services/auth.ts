@@ -2,18 +2,19 @@ import axios from '../utils/api';  // Using configured axios instance
 
 export const registerUser = async (userData: any) => {
   try {
-    const response = await axios.post('/api/v1/users', userData);
+    const response = await axios.post('/users', userData);
     return response.data;
   } catch (error) {
-    throw new Error('Error registering user');
+    console.log('\n.......... error: ', error, error.response?.data);
+    throw error;
   }
 };
 
 export const loginUser = async (credentials: any) => {
   try {
-    const response = await axios.post('/api/v1/users/login', credentials);
+    const response = await axios.post('/users/login', credentials);
     return response.data;
   } catch (error) {
-    throw new Error('Error logging in');
+    throw error;
   }
 };

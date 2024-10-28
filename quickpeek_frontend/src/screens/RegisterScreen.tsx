@@ -1,20 +1,26 @@
 import React, { useState } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { View, Text, TextInput, Button, Alert, StyleSheet } from 'react-native';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
-import { registerUser as registerUserService } from '../services/auth'; // Update to use axios config
+import { useNavigation } from '@react-navigation/native';
+import { registerUser as registerUserService } from '../services/auth';
+import { AppDispatch, RootState } from '../store';
 import { registerUser } from '../store/slices/userSlice';
+import { setLoading } from '../store/slices/loadingSlice';
+import { CustomButton } from '../components';
 
 export const RegisterScreen = () => {
-  const dispatch = useDispatch();
+  const dispatch = useDispatch<AppDispatch>();
+  const navigation = useNavigation();
+  const isLoading = useSelector((state: RootState) => state.loading.isLoading);
   const [formData, setFormData] = useState({
-    name: '',
-    username: '',
-    email: '',
-    password: '',
-    locationSharingEnabled: true,
+    name: 'Kingsley Eneja',
+    username: 'chingsley',
+    email: 'chingsleychinonso@gmail.com',
+    password: 'SecurePassword',
+    // locationSharingEnabled: true,
     notificationsEnabled: true,
   });
 
@@ -38,10 +44,12 @@ export const RegisterScreen = () => {
 
       // Get notification permissions and device token
       const { status: notifStatus } = await Notifications.getPermissionsAsync();
+      console.log(Constants.expoConfig?.extra?.eas?.projectId);
       const deviceToken = notifStatus === 'granted'
-        ? (await Notifications.getExpoPushTokenAsync()).data
+        ? (await Notifications.getExpoPushTokenAsync({
+          projectId: Constants.expoConfig?.extra?.eas?.projectId,
+        })).data
         : '';
-
       // Payload for registration
       const payload = {
         ...formData,
@@ -49,41 +57,62 @@ export const RegisterScreen = () => {
         deviceToken,
         latitude: location?.coords.latitude,
         longitude: location?.coords.longitude,
-        locationSharingEnabled: locationStatus === 'granted',
+        // locationSharingEnabled: locationStatus === 'granted',
         notificationsEnabled: notifStatus === 'granted',
       };
 
-      // Send registration payload to the backend
-      await registerUserService(payload);
-      dispatch(registerUser(payload));
+      const response = await registerUserService(payload);
+      console.log('\nresponse ====> ', response);
+      // dispatch(registerUser(payload));
 
       Alert.alert('Success', 'Registration successful');
+      navigation.navigate('Login' as never);
     } catch (error) {
-      Alert.alert('Error', 'Failed to register');
+      console.log('error.resopnse:', error.response?.data);
+      if (error.response) {
+        // Log the specific error message from the backend
+        console.log('API error message:', error.response.data);
+        Alert.alert('Error', error.response.data.error);
+      } else {
+        // Fallback for network errors or other unexpected errors
+        console.log('Unexpected error:', error);
+        Alert.alert('Error', 'Failed to register');
+      }
+    } finally {
+      dispatch(setLoading(false));
     }
   };
+
+  const allFieldsFilled = formData.name &&
+    formData.username &&
+    formData.email &&
+    formData.password;
 
   return (
     <View style={styles.container}>
       <Text style={styles.headerText}>Register</Text>
+      <Text>Name</Text>
       <TextInput
         style={styles.input}
-        placeholder="Name"
+        placeholder="Enter full name"
         value={formData.name}
         onChangeText={(value) => handleChange('name', value)}
       />
+      <Text>Usernname</Text>
       <TextInput
         style={styles.input}
-        placeholder="Username"
+        placeholder="Enter Username"
         value={formData.username}
         onChangeText={(value) => handleChange('username', value)}
       />
+      <Text>Email</Text>
       <TextInput
         style={styles.input}
         placeholder="Email"
         value={formData.email}
         onChangeText={(value) => handleChange('email', value)}
       />
+      <Text>Password</Text>
       <TextInput
         style={styles.input}
         placeholder="Password"
@@ -91,7 +120,11 @@ export const RegisterScreen = () => {
         value={formData.password}
         onChangeText={(value) => handleChange('password', value)}
       />
-      <Button title="Register" onPress={handleRegister} />
+      <CustomButton
+        title="Register"
+        onPress={handleRegister}
+        disabled={!allFieldsFilled || isLoading}
+      />
     </View>
   );
 };

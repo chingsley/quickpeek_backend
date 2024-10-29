@@ -4,11 +4,12 @@ import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 interface AuthState {
   isLoggedIn: boolean;
   user: {
+    id: string;
     name: string;
+    username: string;
     email: string;
     deviceType: string;
     deviceToken?: string;
-    location?: { latitude: number, longitude: number; };
     notificationsEnabled: boolean;
   } | null;
   token: string | null;

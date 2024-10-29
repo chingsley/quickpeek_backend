@@ -7,7 +7,6 @@ import Constants from 'expo-constants';
 import { useNavigation } from '@react-navigation/native';
 import { registerUser as registerUserService } from '../services/auth';
 import { AppDispatch, RootState } from '../store';
-import { registerUser } from '../store/slices/userSlice';
 import { setLoading } from '../store/slices/loadingSlice';
 import { CustomButton } from '../components';
 
@@ -50,7 +49,7 @@ export const RegisterScreen = () => {
           projectId: Constants.expoConfig?.extra?.eas?.projectId,
         })).data
         : '';
-      // Payload for registration
+
       const payload = {
         ...formData,
         deviceType,
@@ -63,18 +62,15 @@ export const RegisterScreen = () => {
 
       const response = await registerUserService(payload);
       console.log('\nresponse ====> ', response);
-      // dispatch(registerUser(payload));
 
       Alert.alert('Success', 'Registration successful');
       navigation.navigate('Login' as never);
     } catch (error) {
       console.log('error.resopnse:', error.response?.data);
       if (error.response) {
-        // Log the specific error message from the backend
         console.log('API error message:', error.response.data);
         Alert.alert('Error', error.response.data.error);
       } else {
-        // Fallback for network errors or other unexpected errors
         console.log('Unexpected error:', error);
         Alert.alert('Error', 'Failed to register');
       }

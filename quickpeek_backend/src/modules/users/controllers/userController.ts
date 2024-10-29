@@ -36,9 +36,10 @@ export const registerUser = async (req: Request, res: Response) => {
       }
     });
 
+    const { password: _, createdAt: __, updatedAt: ___, ...sanitizedUser } = newUser;
     res.status(201).json({
       message: 'User registered successfully',
-      data: { user: newUser, location: userLocation },
+      data: { user: sanitizedUser, location: userLocation },
     });
   } catch (error: any) {
     let errCode = errCodeConstants.SERVER.UNKNOWN_ERROR;
@@ -80,7 +81,8 @@ export const loginUser = async (req: Request, res: Response) => {
       deviceToken,
     });
 
-    res.status(200).json({ message: 'Login successful', data: { user, token } });
+    const { password: _, createdAt: __, updatedAt: ___, ...sanitizedUser } = user;
+    res.status(200).json({ message: 'Login successful', data: { user: sanitizedUser, token } });
   } catch (error) {
     res.status(500).json({ error: 'Error logging in' });
   }

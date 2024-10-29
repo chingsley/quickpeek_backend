@@ -1,48 +1,80 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, Button, StyleSheet } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { useNavigation } from '@react-navigation/native';
+import { View, Text, TextInput, StyleSheet, Alert } from 'react-native';
+import { useDispatch, useSelector } from 'react-redux';
+import { AppDispatch, RootState } from '../store';
+import { CustomButton } from '../components';
+import { setLoading } from '../store/slices/loadingSlice';
+import { postQuestion } from '../services/question';
 
 export const QuestionCreationScreen = () => {
-  const [title, setTitle] = useState('');
-  const [content, setContent] = useState('');
+  const dispatch = useDispatch<AppDispatch>();
+  const navigation = useNavigation();
+  const [formData, setFormData] = useState({
+    title: 'Queue check',
+    content: 'How long is the queue at NNPC filling station katampe?',
+    location: '-65.79952838533883, 46.44924450104387'
+  });
+  const { isLoggedIn } = useSelector((state: RootState) => state.auth);
+  const { isLoading } = useSelector((state: RootState) => state.loading);
+
+  const handleChange = (name: string, value: string) => {
+    setFormData({
+      ...formData,
+      [name]: value,
+    });
+  };
+  const clearForm = () => setFormData({ title: '', content: '', location: '' });
+
 
   const handleSubmit = async () => {
     try {
-      const response = await fetch('http://localhost:3000/api/v1/questions', {
-        method: 'POST',
-        headers: {
-          'Authorization': 'Bearer <user_token_here>',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ title, content, location: 'DummyLocation' }),
-      });
-
-      if (response.ok) {
-        alert('Question posted successfully');
-      } else {
-        alert('Failed to post question');
+      if (!isLoggedIn) {
+        navigation.navigate('Login' as never);
+        return;
       }
+
+      const payload = { ...formData };
+      await postQuestion(payload);
+      Alert.alert('Success', 'Question sent!');
+      clearForm();
     } catch (error) {
-      alert('Error posting question');
+      console.log('error.resopnse:', error.response?.data);
+      if (error.response) {
+        console.log('API error message:', error.response.data);
+        Alert.alert('Error', error.response.data.error);
+      } else {
+        console.log('Unexpected error:', error);
+        Alert.alert('Error', 'Failed to post question');
+      }
+    } finally {
+      dispatch(setLoading(false));
     }
   };
+
+  const allFieldsFilled = formData.title && formData.content;
 
   return (
     <View style={styles.container}>
       <Text>Ask a Question</Text>
       <TextInput
         style={styles.input}
-        value={title}
-        onChangeText={setTitle}
+        value={formData.title}
+        onChangeText={(value) => handleChange('title', value)}
         placeholder="Enter question title"
       />
       <Text>Content</Text>
       <TextInput
         style={styles.input}
-        value={content}
-        onChangeText={setContent}
+        value={formData.content}
+        onChangeText={(value) => handleChange('content', value)}
         placeholder="Enter question content"
       />
-      <Button title="Post Question" onPress={handleSubmit} />
+      <CustomButton
+        title='Post Question'
+        onPress={handleSubmit}
+        disabled={!allFieldsFilled || isLoading}
+      />
     </View>
   );
 };

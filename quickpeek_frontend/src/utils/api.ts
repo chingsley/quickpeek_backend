@@ -1,5 +1,4 @@
 import axios from 'axios';
-import Constants from 'expo-constants';
 import store from '../store';
 
 const api = axios.create({
@@ -15,6 +14,8 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+  console.log('\n:::::: token: ', token);
+  console.log('\n:::::: config.headers.Authorization', config.headers.Authorization);
   return config;
 }, (error) => {
   console.log('>> axios error: ', error);

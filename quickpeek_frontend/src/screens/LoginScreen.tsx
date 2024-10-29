@@ -44,7 +44,6 @@ export const LoginScreen = () => {
 
       const payload = { ...formData, deviceType, deviceToken };
       const response = await loginUserService(payload);
-      console.log('\n.......... login response = ', response.data);
       dispatch(login(response.data));
       navigation.navigate('QuestionCreation' as never);
     } catch (error) {

@@ -5,7 +5,6 @@ export const registerUser = async (userData: any) => {
     const response = await axios.post('/users', userData);
     return response.data;
   } catch (error) {
-    console.log('\n.......... error: ', error, error.response?.data);
     throw error;
   }
 };

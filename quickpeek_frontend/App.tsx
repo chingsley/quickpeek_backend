@@ -1,45 +1,18 @@
-// App.tsx
-import React, { useEffect } from 'react';
-// import { NavigationContainer } from '@react-navigation/native';
-// import { StatusBar } from 'expo-status-bar';
-import * as Notifications from 'expo-notifications';
-import * as Location from 'expo-location';
-import AppNavigator from './src/navigation/AppNavigator'; // Navigation setup
+import React from 'react';
+// import AppNavigator from './src/navigation/AppNavigator'; // Navigation setup
 import { Provider } from 'react-redux';
 import store from './src/store';
+// import { usePermissions } from './src/hooks/usePermissions';
+import AppInitializer from './src/components/AppInitializer';
+// import { useLocationUpdater } from './src/hooks/useLocationUpdater';
 
 const App = () => {
-  useEffect(() => {
-    registerForPushNotificationsAsync();
-    askLocationPermission();
-  }, []);
-
-  const registerForPushNotificationsAsync = async () => {
-    const { status } = await Notifications.requestPermissionsAsync();
-    if (status !== 'granted') {
-      alert('Failed to get push token for notifications!');
-      return;
-    }
-    const token = (await Notifications.getExpoPushTokenAsync()).data;
-    console.log('Device token:', token);
-  };
-
-  const askLocationPermission = async () => {
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') {
-      alert('Location permission not granted!');
-      return;
-    }
-    const location = await Location.getCurrentPositionAsync({});
-    console.log('Location:', location);
-  };
+  // usePermissions(); // Initialize permissions once on app load
+  // useLocationUpdater(); // Periodically update user location if locationSharing is allowed
 
   return (
     <Provider store={store}>
-      {/* <NavigationContainer> */}
-      {/* <StatusBar style="auto" /> */}
-      <AppNavigator />
-      {/* </NavigationContainer> */}
+      <AppInitializer />
     </Provider>
   );
 };

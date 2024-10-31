@@ -17,7 +17,7 @@ const BCRYPT_SALT_ROUND = config.bcryptSaltRound!;
 
 export const registerUser = async (req: Request, res: Response) => {
   try {
-    const { password, longitude, latitude, ...rest } = req.body;
+    const { password, ...rest } = req.body;
     const hashedPassword = await bcrypt.hash(password, parseInt(BCRYPT_SALT_ROUND));
 
     const newUser = await prisma.user.create({
@@ -27,19 +27,10 @@ export const registerUser = async (req: Request, res: Response) => {
       },
     });
 
-    // consider implementing this asynchronously with Bull
-    const userLocation = await prisma.location.create({
-      data: {
-        userId: newUser.id,
-        latitude,
-        longitude,
-      }
-    });
-
     const { password: _, createdAt: __, updatedAt: ___, ...sanitizedUser } = newUser;
     res.status(201).json({
       message: 'User registered successfully',
-      data: { user: sanitizedUser, location: userLocation },
+      data: { user: sanitizedUser },
     });
   } catch (error: any) {
     let errCode = errCodeConstants.SERVER.UNKNOWN_ERROR;

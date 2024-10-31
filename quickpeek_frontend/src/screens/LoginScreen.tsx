@@ -15,6 +15,7 @@ export const LoginScreen = () => {
   const dispatch = useDispatch<AppDispatch>();
   const navigation = useNavigation<LoginScreenNavigationProp>();
   const isLoading = useSelector((state: RootState) => state.loading.isLoading);
+  const { notificationToken } = useSelector((state: RootState) => state.permissions);
   const [formData, setFormData] = useState({
     email: 'chingsleychinonso@gmail.com',
     password: 'SecurePassword',
@@ -34,15 +35,15 @@ export const LoginScreen = () => {
       const deviceType = Constants.platform?.ios ? 'ios' : 'android';
 
       // Get notification permissions and device token
-      const { status: notifStatus } = await Notifications.getPermissionsAsync();
-      console.log(Constants.expoConfig?.extra?.eas?.projectId);
-      const deviceToken = notifStatus === 'granted'
-        ? (await Notifications.getExpoPushTokenAsync({
-          projectId: Constants.expoConfig?.extra?.eas?.projectId,
-        })).data
-        : '';
+      // const { status: notifStatus } = await Notifications.getPermissionsAsync();
+      // console.log(Constants.expoConfig?.extra?.eas?.projectId);
+      // const deviceToken = notifStatus === 'granted'
+      //   ? (await Notifications.getExpoPushTokenAsync({
+      //     projectId: Constants.expoConfig?.extra?.eas?.projectId,
+      //   })).data
+      //   : '';
 
-      const payload = { ...formData, deviceType, deviceToken };
+      const payload = { ...formData, deviceType, deviceToken: notificationToken };
       const response = await loginUserService(payload);
       dispatch(login(response.data));
       navigation.navigate('QuestionCreation' as never);

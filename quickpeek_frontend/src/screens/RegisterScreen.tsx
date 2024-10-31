@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { View, Text, TextInput, Button, Alert, StyleSheet } from 'react-native';
-import * as Location from 'expo-location';
-import * as Notifications from 'expo-notifications';
+import { View, Text, TextInput, Alert, StyleSheet } from 'react-native';
 import Constants from 'expo-constants';
 import { useNavigation } from '@react-navigation/native';
 import { registerUser as registerUserService } from '../services/auth';
@@ -14,6 +12,8 @@ export const RegisterScreen = () => {
   const dispatch = useDispatch<AppDispatch>();
   const navigation = useNavigation();
   const isLoading = useSelector((state: RootState) => state.loading.isLoading);
+  const { notificationToken } = useSelector((state: RootState) => state.permissions);
+  console.log('\n 1.1 ------->', notificationToken, location);
   const [formData, setFormData] = useState({
     name: 'Kingsley Eneja',
     username: 'chingsley',
@@ -35,29 +35,14 @@ export const RegisterScreen = () => {
       // Get device type
       const deviceType = Constants.platform?.ios ? 'ios' : 'android';
 
-      // Get location permissions and current location
-      const { status: locationStatus } = await Location.requestForegroundPermissionsAsync();
-      const location = locationStatus === 'granted'
-        ? await Location.getCurrentPositionAsync()
-        : null;
-
-      // Get notification permissions and device token
-      const { status: notifStatus } = await Notifications.getPermissionsAsync();
-      console.log(Constants.expoConfig?.extra?.eas?.projectId);
-      const deviceToken = notifStatus === 'granted'
-        ? (await Notifications.getExpoPushTokenAsync({
-          projectId: Constants.expoConfig?.extra?.eas?.projectId,
-        })).data
-        : '';
-
       const payload = {
         ...formData,
         deviceType,
-        deviceToken,
-        latitude: location?.coords.latitude,
-        longitude: location?.coords.longitude,
+        deviceToken: notificationToken,
+        // latitude: location?.latitude,
+        // longitude: location?.longitude,
         // locationSharingEnabled: locationStatus === 'granted',
-        notificationsEnabled: notifStatus === 'granted',
+        notificationsEnabled: !!notificationToken,
       };
 
       const response = await registerUserService(payload);

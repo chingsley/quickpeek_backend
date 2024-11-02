@@ -43,6 +43,8 @@ const seedTestData = async (prisma: PrismaClient) => {
           deviceType: i % 2 === 0 ? 'ios' : 'android',
           deviceToken: faker.string.uuid(),
           notificationsEnabled: true,
+          locationSharingEnabled: true,
+          isVerified: true,
           location: {
             create: {
               longitude: userLocation.longitude,

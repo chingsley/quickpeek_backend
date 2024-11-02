@@ -26,6 +26,8 @@ describe('questions', () => {
           deviceType: 'ios',
           deviceToken: 'someDeviceToken',
           notificationsEnabled: true,
+          locationSharingEnabled: true,
+          isVerified: true,
         },
       });
 
@@ -133,6 +135,8 @@ describe('questions', () => {
               deviceType: i % 2 === 0 ? 'ios' : 'android',
               deviceToken: 'someDeviceToken',
               notificationsEnabled: true,
+              locationSharingEnabled: true,
+              isVerified: true,
               location: {
                 create: {
                   longitude: faker.location.longitude(),
@@ -229,6 +233,8 @@ describe('questions', () => {
               deviceType: i % 2 === 0 ? 'ios' : 'android',
               deviceToken: 'someDeviceToken',
               notificationsEnabled: true,
+              locationSharingEnabled: true,
+              isVerified: true,
               location: {
                 create: {
                   longitude: faker.location.longitude(),
@@ -318,6 +324,8 @@ describe('questions', () => {
             deviceType: 'android',
             deviceToken: faker.string.uuid(),
             notificationsEnabled: true,
+            locationSharingEnabled: true,
+            isVerified: true,
           }
         }))
       );

@@ -16,6 +16,8 @@ model User {
   deviceType                   String
   deviceToken                  String         // unique identifier for push notifications
   notificationsEnabled         Boolean
+  locationSharingEnabled       Boolean
+  isVerified                   Boolean
   createdAt                    DateTime       @default(now())
   updatedAt                    DateTime       @updatedAt
 

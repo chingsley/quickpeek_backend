@@ -10,6 +10,7 @@ export const validateUserRegistration = (req: Request, res: Response, next: Next
     deviceType: Joi.string().trim().valid(...['android', 'ios']).required(),
     deviceToken: Joi.string().trim().required(),
     notificationsEnabled: Joi.bool().required(),
+    locationSharingEnabled: Joi.bool().required(),
     longitude: Joi.number(),
     latitude: Joi.number()
   });

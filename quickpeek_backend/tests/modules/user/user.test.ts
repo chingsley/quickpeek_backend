@@ -24,13 +24,17 @@ describe('Users', () => {
       deviceType: 'ios',
       deviceToken: 'someDeviceToken',
       notificationsEnabled: true,
+      locationSharingEnabled: true,
+      isVerified: true,
     };
 
     const userPayload = {
       ...userData,
       longitude: faker.location.longitude(),
       latitude: faker.location.latitude(),
+      isVerified: undefined,
     };
+    // delete userPayload.isVerified;
 
     beforeAll(async () => {
       await clearAllSeed(prisma);
@@ -55,19 +59,16 @@ describe('Users', () => {
         .send(userPayload);
 
       expect(res.status).toBe(201);
-      const { user: createdUser, location: userLocation } = res.body.data;
+      const { user: createdUser } = res.body.data;
       expect(createdUser).toHaveProperty('id');
       expect(createdUser.email).toEqual(userPayload.email);
-      expect(userLocation.userId).toEqual(createdUser.id);
-      expect(userLocation.longitude).toEqual(userPayload.longitude);
-      expect(userLocation.latitude).toEqual(userPayload.latitude);
     });
     it('should validate unique email', async () => {
       await prisma.user.create({ data: userData });
       const res = await request(app)
         .post('/api/v1/users')
         .send(userPayload);
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(409);
       expect(res.body.error).toEqual('Email is already in use');
       expect(true).toBe(true);
     });
@@ -79,7 +80,7 @@ describe('Users', () => {
           ...userPayload,
           email: 'different@mail.com' // different email, same username
         });
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(409);
       expect(res.body.error).toEqual('Username is already taken');
       expect(true).toBe(true);
     });
@@ -110,6 +111,8 @@ describe('Users', () => {
       deviceType: 'ios',
       deviceToken: 'someDeviceToken',
       notificationsEnabled: true,
+      locationSharingEnabled: true,
+      isVerified: true,
     };
 
     const loginPayload = {
@@ -162,7 +165,7 @@ describe('Users', () => {
         .post('/api/v1/users/login')
         .send(loginPayload);
       expect(res.status).toBe(200);
-      const token = res.body.data;
+      const { token } = res.body.data;
       const decoded = jwt.verify(token, JWT_SECRET) as TokenPayload;
       expect(decoded.userId).toEqual(user.id);
       expect(deviceUpdateQueue.add).toHaveBeenCalledWith({
@@ -244,6 +247,8 @@ describe('Users', () => {
           deviceType: 'ios',
           deviceToken: 'someDeviceToken',
           notificationsEnabled: true,
+          locationSharingEnabled: true,
+          isVerified: true,
         },
       });
 

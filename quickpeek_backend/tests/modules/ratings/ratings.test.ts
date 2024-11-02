@@ -50,6 +50,8 @@ describe('User Ratings', () => {
             deviceType: 'android',
             deviceToken: faker.string.uuid(),
             notificationsEnabled: true,
+            locationSharingEnabled: true,
+            isVerified: true,
           }
         }))
       );

@@ -59,8 +59,20 @@ export const registerUser = async (req: Request, res: Response) => {
 
 export const loginUser = async (req: Request, res: Response) => {
   try {
-    const { email, password, deviceType, deviceToken } = req.body;
-    const user = await prisma.user.findUnique({ where: { email } });
+    const {
+      email, password, deviceType, deviceToken, notificationsEnabled, locationSharingEnabled
+    } = req.body;
+    const user = await prisma.user.findUnique({
+      where: { email },
+      include: {
+        location: {
+          select: {
+            longitude: true,
+            latitude: true,
+          }
+        }
+      }
+    });
 
     if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({ error: 'Invalid email or password' });
@@ -71,6 +83,8 @@ export const loginUser = async (req: Request, res: Response) => {
       userId: user.id,
       deviceType,
       deviceToken,
+      notificationsEnabled,
+      locationSharingEnabled
     });
 
     const { password: _, createdAt: __, updatedAt: ___, ...sanitizedUser } = user;

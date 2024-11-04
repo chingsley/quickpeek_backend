@@ -3,13 +3,13 @@ import { useDispatch, useSelector } from 'react-redux';
 import { View, Text, TextInput, Alert, StyleSheet } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import Constants from 'expo-constants';
-import * as Notifications from 'expo-notifications';
 import { AppDispatch, RootState } from '../store';
 import { loginUser as loginUserService } from '../services/auth'; // Update to use axios config
 import { login } from '../store/slices/authSlice';
 import { setLoading } from '../store/slices/loadingSlice';
 import { LoginScreenNavigationProp } from '../navigation/types';
 import { CustomButton } from '../components';
+import { setLocation, setLocationSharingEnabled } from '../store/slices/permissionsSlice';
 
 export const LoginScreen = () => {
   const dispatch = useDispatch<AppDispatch>();
@@ -19,8 +19,8 @@ export const LoginScreen = () => {
   const [formData, setFormData] = useState({
     email: 'chingsleychinonso@gmail.com',
     password: 'SecurePassword',
-    deviceType: 'ios',
-    deviceToken: 'dummyToken'
+    deviceType: Constants.platform?.ios ? 'ios' : 'android',
+    deviceToken: notificationToken,
   });
 
   const handleChange = (name: string, value: string) => {
@@ -32,23 +32,15 @@ export const LoginScreen = () => {
 
   const handleLogin = async () => {
     try {
-      const deviceType = Constants.platform?.ios ? 'ios' : 'android';
 
-      // Get notification permissions and device token
-      // const { status: notifStatus } = await Notifications.getPermissionsAsync();
-      // console.log(Constants.expoConfig?.extra?.eas?.projectId);
-      // const deviceToken = notifStatus === 'granted'
-      //   ? (await Notifications.getExpoPushTokenAsync({
-      //     projectId: Constants.expoConfig?.extra?.eas?.projectId,
-      //   })).data
-      //   : '';
-
-      const payload = { ...formData, deviceType, deviceToken: notificationToken };
-      const response = await loginUserService(payload);
+      console.log('\n\nlogin request payload: ------->', formData);
+      const response = await loginUserService(formData);
       dispatch(login(response.data));
+      const { user } = response.data;
+      dispatch(setLocation(user?.location));
+      dispatch(setLocationSharingEnabled(user?.locationSharingEnabled));
       navigation.navigate('QuestionCreation' as never);
     } catch (error) {
-      // alert('Login failed');
       console.log('error.resopnse:', error.response?.data);
       if (error.response) {
         // Log the specific error message from the backend

@@ -1,8 +1,13 @@
 // src/store/slices/authSlice.ts
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+interface Location {
+  longitude: number;
+  latitude: number;
+}
 
 interface AuthState {
   isLoggedIn: boolean;
+  token: string | null;
   user: {
     id: string;
     name: string;
@@ -11,8 +16,8 @@ interface AuthState {
     deviceType: string;
     deviceToken?: string;
     notificationsEnabled: boolean;
+    locationSharingEnabled: boolean;
   } | null;
-  token: string | null;
 }
 
 const initialState: AuthState = {
@@ -27,8 +32,8 @@ const authSlice = createSlice({
   reducers: {
     login: (state, action: PayloadAction<{ user: AuthState['user'], token: string; }>) => {
       state.isLoggedIn = true;
-      state.user = action.payload.user;
       state.token = action.payload.token;
+      state.user = action.payload.user;
     },
     logout: (state) => {
       state.isLoggedIn = false;

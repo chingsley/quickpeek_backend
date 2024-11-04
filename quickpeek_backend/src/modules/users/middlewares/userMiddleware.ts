@@ -28,6 +28,8 @@ export const validateUserLogin = (req: Request, res: Response, next: NextFunctio
     password: Joi.string().min(6).required(),
     deviceType: Joi.string().trim().valid(...['android', 'ios']).required(),
     deviceToken: Joi.string().trim().required(),
+    notificationsEnabled: Joi.bool().required(),
+    locationSharingEnabled: Joi.bool().required(),
   });
 
   const { error, value } = schema.validate(req.body);

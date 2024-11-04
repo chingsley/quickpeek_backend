@@ -12,15 +12,16 @@ export const RegisterScreen = () => {
   const dispatch = useDispatch<AppDispatch>();
   const navigation = useNavigation();
   const isLoading = useSelector((state: RootState) => state.loading.isLoading);
-  const { notificationToken } = useSelector((state: RootState) => state.permissions);
-  console.log('\n 1.1 ------->', notificationToken, location);
+  const { notificationToken, locationSharingEnabled } = useSelector((state: RootState) => state.permissions);
   const [formData, setFormData] = useState({
     name: 'Kingsley Eneja',
     username: 'chingsley',
     email: 'chingsleychinonso@gmail.com',
     password: 'SecurePassword',
-    // locationSharingEnabled: true,
-    notificationsEnabled: true,
+    locationSharingEnabled,
+    notificationsEnabled: !!notificationToken,
+    deviceToken: notificationToken,
+    deviceType: Constants.platform?.ios ? 'ios' : 'android'
   });
 
   const handleChange = (name: string, value: string) => {
@@ -31,22 +32,10 @@ export const RegisterScreen = () => {
   };
 
   const handleRegister = async () => {
+    console.log('\n\n Registration request payload ------->', notificationToken);
     try {
-      // Get device type
-      const deviceType = Constants.platform?.ios ? 'ios' : 'android';
-
-      const payload = {
-        ...formData,
-        deviceType,
-        deviceToken: notificationToken,
-        // latitude: location?.latitude,
-        // longitude: location?.longitude,
-        // locationSharingEnabled: locationStatus === 'granted',
-        notificationsEnabled: !!notificationToken,
-      };
-
-      const response = await registerUserService(payload);
-      console.log('\nresponse ====> ', response);
+      const response = await registerUserService(formData);
+      console.log('\n\n Registration response data ------> ', response);
 
       Alert.alert('Success', 'Registration successful');
       navigation.navigate('Login' as never);

@@ -1,4 +1,3 @@
-// src/store/slices/authSlice.ts
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 interface Location {
   longitude: number;
@@ -17,6 +16,7 @@ interface AuthState {
     deviceToken?: string;
     notificationsEnabled: boolean;
     locationSharingEnabled: boolean;
+    location: Location | null;
   } | null;
 }
 
@@ -40,8 +40,16 @@ const authSlice = createSlice({
       state.user = null;
       state.token = null;
     },
+    updateUserObjectLocation: (state, action: PayloadAction<Location>) => {
+      if (state.user === null) return;
+
+      state.user = {
+        ...state.user,
+        location: action.payload,
+      };
+    },
   },
 });
 
-export const { login, logout } = authSlice.actions;
+export const { login, logout, updateUserObjectLocation } = authSlice.actions;
 export default authSlice.reducer;

@@ -9,18 +9,19 @@ import { login } from '../store/slices/authSlice';
 import { setLoading } from '../store/slices/loadingSlice';
 import { LoginScreenNavigationProp } from '../navigation/types';
 import { CustomButton } from '../components';
-import { setLocation, setLocationSharingEnabled } from '../store/slices/permissionsSlice';
 
 export const LoginScreen = () => {
   const dispatch = useDispatch<AppDispatch>();
   const navigation = useNavigation<LoginScreenNavigationProp>();
   const isLoading = useSelector((state: RootState) => state.loading.isLoading);
-  const { notificationToken } = useSelector((state: RootState) => state.permissions);
+  const { notificationToken, locationSharingEnabled } = useSelector((state: RootState) => state.permissions);
   const [formData, setFormData] = useState({
     email: 'chingsleychinonso@gmail.com',
     password: 'SecurePassword',
     deviceType: Constants.platform?.ios ? 'ios' : 'android',
     deviceToken: notificationToken,
+    notificationsEnabled: !!notificationToken,
+    locationSharingEnabled,
   });
 
   const handleChange = (name: string, value: string) => {
@@ -36,9 +37,6 @@ export const LoginScreen = () => {
       console.log('\n\nlogin request payload: ------->', formData);
       const response = await loginUserService(formData);
       dispatch(login(response.data));
-      const { user } = response.data;
-      dispatch(setLocation(user?.location));
-      dispatch(setLocationSharingEnabled(user?.locationSharingEnabled));
       navigation.navigate('QuestionCreation' as never);
     } catch (error) {
       console.log('error.resopnse:', error.response?.data);

@@ -4,16 +4,14 @@ import { usePermissions } from '../hooks/usePermissions';
 import { useAppDispatch } from '../store';
 import { useLocationUpdater } from '../hooks/useLocationUpdater';
 
-import { initializeLocation } from '../store/slices/permissionsSlice';
-
 const AppInitializer = () => {
-  const dispatch = useAppDispatch();
+  // const dispatch = useAppDispatch();
   usePermissions(); // Initialize permissions once on app load
   useLocationUpdater(); // start periodic location update
 
-  useEffect(() => {
-    dispatch(initializeLocation());
-  }, [dispatch]);
+  // useEffect(() => {
+  //   dispatch(initializeLocation());
+  // }, [dispatch]);
 
   return <AppNavigator />;
 };

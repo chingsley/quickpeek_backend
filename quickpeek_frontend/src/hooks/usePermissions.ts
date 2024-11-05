@@ -4,10 +4,11 @@ import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useDispatch } from 'react-redux';
 import Constants from 'expo-constants';
-import { setNotificationToken, setLocation } from '../store/slices/permissionsSlice';
+import { setNotificationToken, setLocationSharingEnabled } from '../store/slices/permissionsSlice';
 
 const NOTIF_TOKEN_KEY = 'notificationToken';
-const LOCATION_KEY = 'location';
+const LOCATION_PERMISSION_KEY = 'locationpermissionkey';
+const QUICK_PEEK_PERMISSIONS_KEY = 'quickpeekpermissionskey';
 
 export const usePermissions = () => {
   const dispatch = useDispatch();
@@ -33,20 +34,18 @@ export const usePermissions = () => {
   }, [dispatch]);
 
   const askLocationPermission = useCallback(async () => {
-    const savedLocation = await AsyncStorage.getItem(LOCATION_KEY);
-    if (savedLocation) {
-      const locationData = JSON.parse(savedLocation);
-      dispatch(setLocation(locationData));
-      return locationData;
+    const savedLocationSetting = await AsyncStorage.getItem(LOCATION_PERMISSION_KEY);
+    if (savedLocationSetting) {
+      const value = JSON.parse(savedLocationSetting);
+      dispatch(setLocationSharingEnabled(value));
+      return;
     }
 
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status === 'granted') {
-      const location = await Location.getCurrentPositionAsync({});
-      const locationData = { latitude: location.coords.latitude, longitude: location.coords.longitude };
-      dispatch(setLocation(locationData));
-      await AsyncStorage.setItem(LOCATION_KEY, JSON.stringify(locationData));
-      return locationData;
+      dispatch(setLocationSharingEnabled(true));
+      await AsyncStorage.setItem(LOCATION_PERMISSION_KEY, JSON.stringify(true));
+      return;
     } else {
       alert('Location permission not granted!');
       return null;

@@ -6,7 +6,7 @@ import { calculateHaversineDistance } from '../utils/geo';
 import { updateUserLocation } from '../services/location';
 import { updateUserObjectLocation } from '../store/slices/authSlice';
 
-const LOCATION_UPDATE_INTERVAL = 5 * 60 * 1000; // every 5 minutes
+const LOCATION_UPDATE_INTERVAL = 0.2 * 60 * 1000; // every 5 minutes
 const LOCATION_THRESHOLD = 0.1; // Minimum distance in km to trigger an update (update this value appropriately later)
 
 export const useLocationUpdater = () => {
@@ -16,25 +16,25 @@ export const useLocationUpdater = () => {
 
   useEffect(() => {
     const updateLocation = async () => {
-      console.log('\n\nStart: updateLocation: ', isLoggedIn);
+      console.log('\n\n-----> START LOCATION UPDATE');
+      console.log('updateLocation: ', { isLoggedIn, locationSharingEnabled });
       try {
         if (!isLoggedIn || !locationSharingEnabled) return;
 
         const updatedLocation = await Location.getCurrentPositionAsync({});
         const { latitude, longitude } = updatedLocation.coords;
         const prevLocation = user?.location;
-        console.log('\n\nnew Location: ', { latitude, longitude });
-        console.log('\n\nprevLocation: ', prevLocation);
+        console.log('prevLocation: ', prevLocation);
+        console.log('newLocation: ', { latitude, longitude });
         if (prevLocation) {
           const { latitude: prevLat, longitude: prevLon } = prevLocation;
           const distance = calculateHaversineDistance(prevLat, prevLon, latitude, longitude);
-          // console.log('\n\n:---:', distance, LOCATION_THRESHOLD, distance < LOCATION_THRESHOLD);
           if (distance < LOCATION_THRESHOLD) return; // Skip update if within the threshold
         }
 
         await updateUserLocation({ longitude, latitude });
         dispatch(updateUserObjectLocation({ latitude, longitude }));
-        console.log('\n\nEnd: Location updated: ', { longitude, latitude });
+        console.log('<----- END LOCATION UPDATE');
       } catch (error) {
         console.error('Failed to update location:', error);
       }
@@ -44,5 +44,5 @@ export const useLocationUpdater = () => {
     const intervalId = setInterval(updateLocation, LOCATION_UPDATE_INTERVAL);
 
     return () => clearInterval(intervalId); // Clean up on unmount
-  }, [isLoggedIn, locationSharingEnabled, dispatch]);
+  }, [isLoggedIn, locationSharingEnabled, dispatch, user?.location]);
 };

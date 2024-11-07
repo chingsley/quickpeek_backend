@@ -79,6 +79,7 @@ describe('Notification System', () => {
         title: '',
         content: 'Far away question',
         location: '180.0000, 90.0000', // Extreme coordinates UNLIKELY to match any user (unlikely, but still possilbe, so sometimes it causes flaky test because the central coordinates in the seed are generated at random)
+        address: '43356 address street',
       },
     });
 

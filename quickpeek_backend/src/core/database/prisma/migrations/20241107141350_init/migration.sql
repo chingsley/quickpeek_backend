@@ -8,6 +8,8 @@ CREATE TABLE "users" (
     "deviceType" TEXT NOT NULL,
     "deviceToken" TEXT NOT NULL,
     "notificationsEnabled" BOOLEAN NOT NULL,
+    "locationSharingEnabled" BOOLEAN NOT NULL,
+    "isVerified" BOOLEAN NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -32,6 +34,7 @@ CREATE TABLE "questions" (
     "title" TEXT NOT NULL,
     "content" TEXT NOT NULL,
     "location" TEXT NOT NULL,
+    "address" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,

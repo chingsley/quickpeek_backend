@@ -51,7 +51,8 @@ describe('questions', () => {
       const questionData = {
         title: 'Where can I find a good cafe?',
         content: 'Looking for a nice place to work in downtown.',
-        location: '40.730610, -73.935242', // Example lat, long
+        location: '40.730610, -73.935242', // Example long, lat
+        address: faker.location.streetAddress(),
       };
 
       const response = await request(app)
@@ -66,6 +67,7 @@ describe('questions', () => {
         title: questionData.title,
         content: questionData.content,
         location: questionData.location,
+        address: questionData.address,
         userId: testUser.id,
       });
     });
@@ -89,6 +91,7 @@ describe('questions', () => {
         title: 'Where can I find a good cafe?',
         content: 'Looking for a nice place to work in downtown.',
         location: '40.730610, -73.935242',
+        address: faker.location.streetAddress(),
       };
 
       const response = await request(app)
@@ -104,6 +107,7 @@ describe('questions', () => {
         title: 'Where can I find a good cafe?',
         content: 'Looking for a nice place to work in downtown.',
         location: '40.730610, -73.935242',
+        address: faker.location.streetAddress(),
       };
 
       const response = await request(app)
@@ -158,6 +162,7 @@ describe('questions', () => {
               title: `Question ${i + 1}`,
               content: `Question content ${i + 1}`,
               location: `${faker.location.longitude()}, ${faker.location.latitude()}`,
+              address: faker.location.streetAddress(),
             },
           });
         })
@@ -254,6 +259,7 @@ describe('questions', () => {
           title: 'Queue check',
           content: 'What is the queue size at Oando filling station',
           location: `${faker.location.longitude()}, ${faker.location.latitude()}`,
+          address: faker.location.streetAddress(),
         },
       });
 
@@ -337,6 +343,7 @@ describe('questions', () => {
             title: `${qnCreator.username}'s question`,
             content: faker.string.alpha({ length: 40 }),
             location: `${faker.location.longitude()}, ${faker.location.latitude()}`,
+            address: faker.location.streetAddress(),
           }
         }))
       );

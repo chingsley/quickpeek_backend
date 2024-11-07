@@ -63,7 +63,8 @@ describe('User Ratings', () => {
             userId: questionCreator.id,
             title: `question ${i + 1} title`,
             content: `question ${i + 1} content`,
-            location: `${faker.location.longitude()}, ${faker.location.latitude()}`
+            location: `${faker.location.longitude()}, ${faker.location.latitude()}`,
+            address: faker.location.streetAddress(),
           }
         })
         ));

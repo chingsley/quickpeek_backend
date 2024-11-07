@@ -1,8 +1,7 @@
 import { AnswerRating, PrismaClient, Question, UserRating } from '@prisma/client';
-import { v4 as uuidv4 } from 'uuid';
+// import { v4 as uuidv4 } from 'uuid';
 import bcrypt from 'bcrypt';
-import { ar, faker } from '@faker-js/faker';
-import { userRatingsUpdateQueue } from '../../queues/userRatingsUpdateQueue';
+import { faker } from '@faker-js/faker';
 
 // Function to generate random coordinates within a certain radius (in km) around a central point
 const generateRandomLocationWithinRadius = (longitude: number, latitude: number, radiusInKm: number) => {
@@ -74,6 +73,7 @@ const seedTestData = async () => {
           title: `Question ${i + 1}`,
           content: `Question content ${i + 1}`,
           location: `${questionLocation.longitude}, ${questionLocation.latitude}`,
+          address: faker.location.streetAddress(),
         },
       });
       return question;

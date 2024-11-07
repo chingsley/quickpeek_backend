@@ -69,6 +69,7 @@ const seedTestData = async (prisma: PrismaClient) => {
           title: `Question ${i + 1}`,
           content: `Question content ${i + 1}`,
           location: `${questionLocation.longitude}, ${questionLocation.latitude}`,
+          address: faker.location.streetAddress()
         },
       });
     })

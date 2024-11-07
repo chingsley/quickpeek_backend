@@ -119,7 +119,9 @@ describe('Users', () => {
       email: userData.email,
       password: 'testUserPass',
       deviceType: 'android',
-      deviceToken: 'someDiveToken'
+      deviceToken: 'someDiveToken',
+      notificationsEnabled: true,
+      locationSharingEnabled: true,
     };
 
     const deviceUpdateQueueAddMock = jest.spyOn(deviceUpdateQueue, 'add').mockImplementation((data) => {
@@ -172,6 +174,8 @@ describe('Users', () => {
         userId: user.id,
         deviceToken: loginPayload.deviceToken,
         deviceType: loginPayload.deviceType,
+        notificationsEnabled: true,
+        locationSharingEnabled: true,
       });
       expect(deviceUpdateQueue.process).toHaveBeenCalled();
     });

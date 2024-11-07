@@ -6,7 +6,7 @@ import { sendNotification } from '../messaging/firebase.push';
 export const notifyNearbyUsers = async (job: Job) => {
   try {
     const radiusInKm = parseFloat(process.env.RADIUS_OF_CONCERN_IN_KM || '3');
-    const { questionId, questionLon, questionLat, questionCreatorId, questionTitle, questionContent } = job.data;
+    const { questionId, questionLon, questionLat, questionAddress, questionCreatorId, questionTitle, questionContent } = job.data;
     const nearbyUsers = await findNearbyUsers(prisma, questionLon, questionLat, radiusInKm);
     if (nearbyUsers.length === 0) return;
 
@@ -18,7 +18,10 @@ export const notifyNearbyUsers = async (job: Job) => {
         const payload = {
           title: questionTitle,
           body: questionContent,
-          data: { questionId: questionId },
+          data: {
+            questionId: questionId,
+            questionAddress,
+          },
         };
 
         await sendNotification(user.deviceToken, payload);

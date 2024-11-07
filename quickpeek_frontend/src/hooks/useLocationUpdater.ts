@@ -6,7 +6,7 @@ import { calculateHaversineDistance } from '../utils/geo';
 import { updateUserLocation } from '../services/location';
 import { updateUserObjectLocation } from '../store/slices/authSlice';
 
-const LOCATION_UPDATE_INTERVAL = 0.2 * 60 * 1000; // every 5 minutes
+const LOCATION_UPDATE_INTERVAL = 5 * 60 * 1000; // every 5 minutes
 const LOCATION_THRESHOLD = 0.1; // Minimum distance in km to trigger an update (update this value appropriately later)
 
 export const useLocationUpdater = () => {

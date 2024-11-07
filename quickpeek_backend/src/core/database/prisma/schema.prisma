@@ -47,7 +47,8 @@ model Question {
   id                      String   @id @default(uuid())
   title                   String
   content                 String
-  location                String  // coordinates of the place the user is asking about, e.g: 
+  location                String  // coordinates of the place the user is asking about, e.g: 'longitude, latitude' '69.70293022853721, -111.4263007731484'
+  address                 String  // coordinates of the place the user is asking about, e.g: 'longitude, latitude' '69.70293022853721, -111.4263007731484'
   userId                  String
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt

@@ -128,4 +128,70 @@ export const getAnswersByQuestionId = async (req: Request, res: Response) => {
   }
 };
 
+export const getPendingQuestions = async (req: Request, res: Response) => {
+  try {
+    const { questionIds } = req.query;
+
+    if (!questionIds) {
+      return res.status(400).json({ error: 'No questionIds provided' });
+    }
+
+    const parsedIds = (questionIds as string).split(',').map(id => id.trim());
+    const question = await prisma.question.findMany({
+      where: {
+        id: {
+          in: parsedIds
+        },
+      },
+      include: {
+        user: {
+          select: {
+            username: true, // Include the question creator's username
+          },
+        },
+      },
+    });
+
+    return res.json(question);
+  } catch (error) {
+    // console.log("\n>>>>>> error: ", error, "\n");
+    return res.status(500).json({ error: 'Failed to get question. Internal server error.' });
+  }
+};
+
+// export const getMyQuestions = async (req: Request, res: Response) => {
+//   try {
+//     const { questionId } = req.params;
+
+//     const question = await prisma.question.findUnique({
+//       where: {
+//         id: questionId,
+//       },
+//       include: {
+//         answers: {
+//           include: {
+//             answerRating: true, // Include the rating for each answer
+//             user: {
+//               select: {
+//                 username: true, // Include the responder's username
+//                 userRating: true, // Include the responder's userRating. Will work before userRatings table is a one-to-one relationship with the user table
+//               },
+//             },
+//           },
+//         },
+//         user: {
+//           select: {
+//             username: true, // Include the question creator's username
+//           },
+//         },
+//       },
+//     });
+
+//     return res.json(question);
+//   } catch (error) {
+//     // console.log("\n>>>>>> error: ", error, "\n");
+//     return res.status(500).json({ error: 'Failed to get question. Internal server error.' });
+//   }
+// };
+
 

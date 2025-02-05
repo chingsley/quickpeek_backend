@@ -115,6 +115,11 @@ Ensure the following software is installed on your machine:
    docker run -p 6379:6379 redis
    ```
 
+**Before starting the development server, be sure to be using the right node version ((>= 16.x))
+```bash
+nvm use 18.17.0 
+```
+
 6. **Start the Development Server:**
 
    Use `concurrently` to run the server, queue workers, and Redis server simultaneously:

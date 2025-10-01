@@ -1,3 +1,4 @@
+import { loggingMiddleware } from './api/middlewares/logging.middleware';
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import questionRoutes from './modules/questions/routes/questionRoutes';
@@ -9,6 +10,7 @@ const app = express();
 
 app.use(express.json());
 app.use(cors());
+app.use(loggingMiddleware);
 
 app.use('/api/v1/health', healthRoutes);
 app.use('/api/v1/questions', questionRoutes);

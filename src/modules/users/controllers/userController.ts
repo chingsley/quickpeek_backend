@@ -45,7 +45,7 @@ export const registerUser = async (req: Request, res: Response) => {
           errorMessage = 'Email is already in use';
           errCode = errCodeConstants.REGISTRATION.EMAIL_CONFLICT;
         } else if (uniqueField && uniqueField.includes('username')) {
-          errorMessage = 'Username is already taken';
+          errorMessage = 'Username is already exists. Choose a different username';
           errCode = errCodeConstants.REGISTRATION.USERNAME_CONFLICT;
         }
 

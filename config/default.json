@@ -1,0 +1,6 @@
+{
+  "logger": {
+    "type": "console",
+    "enabled": true
+  }
+}

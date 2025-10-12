@@ -51,7 +51,8 @@ describe('questions', () => {
       const questionData = {
         title: 'Where can I find a good cafe?',
         content: 'Looking for a nice place to work in downtown.',
-        location: '40.730610, -73.935242', // Example long, lat
+        longitude: 40.730610,
+        latitude: -73.935242,
         address: faker.location.streetAddress(),
       };
 
@@ -66,7 +67,8 @@ describe('questions', () => {
       expect(response.body.data).toMatchObject({
         title: questionData.title,
         content: questionData.content,
-        location: questionData.location,
+        longitude: questionData.longitude,
+        latitude: questionData.latitude,
         address: questionData.address,
         userId: testUser.id,
       });
@@ -90,7 +92,8 @@ describe('questions', () => {
       const questionData = {
         title: 'Where can I find a good cafe?',
         content: 'Looking for a nice place to work in downtown.',
-        location: '40.730610, -73.935242',
+        longitude: 40.730610,
+        latitude: -73.935242,
         address: faker.location.streetAddress(),
       };
 
@@ -106,7 +109,8 @@ describe('questions', () => {
       const questionData = {
         title: 'Where can I find a good cafe?',
         content: 'Looking for a nice place to work in downtown.',
-        location: '40.730610, -73.935242',
+        longitude: 40.730610,
+        latitude: -73.935242,
         address: faker.location.streetAddress(),
       };
 
@@ -161,7 +165,8 @@ describe('questions', () => {
               userId: i < 2 ? testUser1.id : testUser2.id,  // Associate each question with one of the users
               title: `Question ${i + 1}`,
               content: `Question content ${i + 1}`,
-              location: `${faker.location.longitude()}, ${faker.location.latitude()}`,
+              longitude: faker.location.longitude(),
+              latitude: faker.location.latitude(),
               address: faker.location.streetAddress(),
             },
           });
@@ -258,7 +263,8 @@ describe('questions', () => {
           userId: testUser1.id,  // Associate each question with one of the users
           title: 'Queue check',
           content: 'What is the queue size at Oando filling station',
-          location: `${faker.location.longitude()}, ${faker.location.latitude()}`,
+          longitude: faker.location.longitude(),
+          latitude: faker.location.latitude(),
           address: faker.location.streetAddress(),
         },
       });
@@ -342,7 +348,8 @@ describe('questions', () => {
             userId: qnCreator.id,
             title: `${qnCreator.username}'s question`,
             content: faker.string.alpha({ length: 40 }),
-            location: `${faker.location.longitude()}, ${faker.location.latitude()}`,
+            longitude: faker.location.longitude(),
+            latitude: faker.location.latitude(),
             address: faker.location.streetAddress(),
           }
         }))

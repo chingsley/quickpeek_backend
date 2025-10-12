@@ -72,7 +72,8 @@ const seedTestData = async () => {
           userId: users[i].id,  // Associate each question with one of the first 5 users
           title: `Question ${i + 1}`,
           content: `Question content ${i + 1}`,
-          location: `${questionLocation.longitude}, ${questionLocation.latitude}`,
+          longitude: questionLocation.longitude,
+          latitude: questionLocation.latitude,
           address: faker.location.streetAddress(),
         },
       });
@@ -136,7 +137,7 @@ const seedTestData = async () => {
     return acc;
   }, {});
 
-  console.log(Object.values(userRatingsPayload));
+  // console.log(Object.values(userRatingsPayload));
   // use userRatings payload to create answerRatings
   await Promise.all(
     Array.from(Object.values(userRatingsPayload), async (userRatingPayload) => prisma.userRating.create({ data: userRatingPayload as UserRating }))

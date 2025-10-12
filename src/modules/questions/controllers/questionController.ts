@@ -8,22 +8,23 @@ import { sendAnswerToquestionCreatorQueue } from '../../../core/queues/sendAnswe
 
 export const createQuestion = async (req: Request, res: Response) => {
   try {
-    const { content, title, location, address } = req.body;
+    const { content, title, location, latitude, longitude, address } = req.body;
     const question = await prisma.question.create({
       data: {
         title,
         content,
-        location,
+        longitude,
+        latitude,
         address,
         userId: req.user!.userId,
       },
     });
 
-    const [questionLon, questionLat] = location.split(',').map(Number);
+    // const [questionLon, questionLat] = location.split(',').map(Number);
     notifyNearbyUsersQueue.add({
       questionId: question.id,
-      questionLon: questionLon,
-      questionLat: questionLat,
+      questionLon: question.longitude,
+      questionLat: question.latitude,
       questionAddress: address,
       questionCreatorId: question.userId,
       questionTitle: title,

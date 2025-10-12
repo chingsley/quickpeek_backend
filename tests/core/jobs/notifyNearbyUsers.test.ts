@@ -36,7 +36,7 @@ describe('Notification System', () => {
   it('should notify nearby users', async () => {
     const questions = await prisma.question.findMany();
     for (const question of questions) {
-      const [longitude, latitude] = question.location.split(', ').map(Number);
+      const { longitude, latitude } = question;
       const radiusInKm = 10;
 
       const nearbyUsers = await notifyNearbyUsersJob.findNearbyUsers(prisma, longitude, latitude, radiusInKm);
@@ -53,7 +53,7 @@ describe('Notification System', () => {
   it.skip('should call the sendNotification function', async () => {
     const sendNotificationSpy = jest.spyOn(fbPushMsg, 'sendNotification').mockResolvedValue('');
     const question = await prisma.question.findFirst();
-    const [longitude, latitude] = question!.location.split(', ').map(Number);
+    const { longitude, latitude } = question!;
     const radiusInKm = 10;
     await notifyNearbyUsersJob.notifyNearbyUsers({
       data: {
@@ -78,12 +78,14 @@ describe('Notification System', () => {
         userId: (await prisma.user.findFirst())!.id,
         title: '',
         content: 'Far away question',
-        location: '180.0000, 90.0000', // Extreme coordinates UNLIKELY to match any user (unlikely, but still possilbe, so sometimes it causes flaky test because the central coordinates in the seed are generated at random)
+        // Extreme coordinates UNLIKELY to match any user (unlikely, but still possilbe, so sometimes it causes flaky test because the central coordinates in the seed are generated at random)
+        longitude: 180.0000,
+        latitude: 90.0000,
         address: '43356 address street',
       },
     });
 
-    const [longitude, latitude] = farQuestion.location.split(', ').map(Number);
+    const { longitude, latitude } = farQuestion;
     const radiusInKm = 10;
     const nearbyUsers = await notifyNearbyUsersJob.findNearbyUsers(prisma, longitude, latitude, radiusInKm);
     expect(nearbyUsers.length).toBe(0);

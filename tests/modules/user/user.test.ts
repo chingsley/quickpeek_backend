@@ -81,11 +81,11 @@ describe('Users', () => {
           email: 'different@mail.com' // different email, same username
         });
       expect(res.status).toBe(409);
-      expect(res.body.error).toEqual('Username is already taken');
+      expect(res.body.error).toEqual('Username is already exists. Choose a different username');
       expect(true).toBe(true);
     });
     it('should should validate required fields', async () => {
-      const requiredFields = ['email', 'password', 'name', 'username', 'deviceType', 'deviceToken'];
+      const requiredFields = ['email', 'password', 'name', 'username', 'deviceType'];
       await Promise.all(
         Array.from(requiredFields, async (field) => {
           const res = await request(app)
@@ -99,6 +99,17 @@ describe('Users', () => {
           expect(true).toBe(true);
         })
       );
+    });
+    it('requires "notificationEnabled" to be false if "deviceToken" is not provided', async () => {
+      const res = await request(app)
+        .post('/api/v1/users')
+        .send({
+          ...userPayload,
+          deviceToken: undefined, // remove each required field to test
+          notificationsEnabled: true,
+        });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toEqual('"notificationsEnabled" must be [false]');
     });
   });
   describe('User Login (POST /api/v1/users/login)', () => {
@@ -198,7 +209,7 @@ describe('Users', () => {
       expect(res.body.error).toEqual('Invalid email or password');
     });
     it('should  validate required fields', async () => {
-      const requiredFields = ['email', 'password', 'deviceType', 'deviceToken'];
+      const requiredFields = ['email', 'password', 'deviceType'];
       await Promise.all(
         Array.from(requiredFields, async (field) => {
           const res = await request(app)
@@ -211,6 +222,17 @@ describe('Users', () => {
           expect(res.body.error).toEqual(`"${field}" is required`);
         })
       );
+    });
+    it('requires "notificationEnabled" to be false if "deviceToken" is not provided', async () => {
+      const res = await request(app)
+        .post('/api/v1/users/login')
+        .send({
+          ...loginPayload,
+          deviceToken: undefined, // remove each required field to test
+          notificationsEnabled: true,
+        });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toEqual('"notificationsEnabled" must be [false]');
     });
   });
   describe('User Location Update Endpoint', () => {

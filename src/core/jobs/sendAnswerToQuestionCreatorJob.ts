@@ -40,7 +40,6 @@ const sendAnswerToquestionCreator = async (job: Job) => {
     if (!user.notificationsEnabled) return;
 
     const payload = {
-      title: `Answer: ${question.title}`,
       body: answerContent,
       data: {
         questionId,

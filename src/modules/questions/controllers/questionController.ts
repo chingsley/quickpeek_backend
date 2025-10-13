@@ -8,11 +8,10 @@ import { sendAnswerToquestionCreatorQueue } from '../../../core/queues/sendAnswe
 
 export const createQuestion = async (req: Request, res: Response) => {
   try {
-    const { content, title, location, latitude, longitude, address } = req.body;
+    const { text, latitude, longitude, address } = req.body;
     const question = await prisma.question.create({
       data: {
-        title,
-        content,
+        text,
         longitude,
         latitude,
         address,
@@ -27,8 +26,7 @@ export const createQuestion = async (req: Request, res: Response) => {
       questionLat: question.latitude,
       questionAddress: address,
       questionCreatorId: question.userId,
-      questionTitle: title,
-      questionContent: content,
+      questionText: text,
     });
 
     res.status(201).json({
@@ -58,19 +56,19 @@ export const getAllQuestionsByUserId = async (req: Request, res: Response) => {
 
 export const createAnswerForQuestion = async (req: Request, res: Response) => {
   try {
-    const { content } = req.body;
+    const { text } = req.body;
     const questionId = req.params.questionId;
     const answer = await prisma.answer.create({
       data: {
         questionId,
-        content,
+        text,
         userId: req.user!.userId, // responder id
       }
     });
 
     sendAnswerToquestionCreatorQueue.add({
       questionId,
-      answerContent: answer.content,
+      answerText: answer.text,
       responderId: answer.userId,
     });
     res.status(201).json({

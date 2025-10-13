@@ -61,9 +61,9 @@ describe('User Ratings', () => {
         Array.from([questionCreator1, questionCreator2], (questionCreator, i) => prisma.question.create({
           data: {
             userId: questionCreator.id,
-            title: `question ${i + 1} title`,
-            content: `question ${i + 1} content`,
-            location: `${faker.location.longitude()}, ${faker.location.latitude()}`,
+            text: `question ${i + 1} text`,
+            longitude: faker.location.longitude(),
+            latitude: faker.location.latitude(),
             address: faker.location.streetAddress(),
           }
         })
@@ -75,7 +75,7 @@ describe('User Ratings', () => {
           data: {
             userId: responder.id,
             questionId: question.id,
-            content: `answer to question ${i + 1}`,
+            text: `answer to question ${i + 1}`,
           }
         }))
       );

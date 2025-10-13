@@ -58,8 +58,7 @@ describe('Notification System', () => {
     await notifyNearbyUsersJob.notifyNearbyUsers({
       data: {
         questionId: question!.id,
-        questionTitle: question!.title,
-        questionContent: question!.content,
+        questionText: question!.text,
         questionCreatorId: question!.userId,
         questionLon: longitude,
         questionLat: latitude,
@@ -76,8 +75,7 @@ describe('Notification System', () => {
     const farQuestion = await prisma.question.create({
       data: {
         userId: (await prisma.user.findFirst())!.id,
-        title: '',
-        content: 'Far away question',
+        text: 'Far away question',
         // Extreme coordinates UNLIKELY to match any user (unlikely, but still possilbe, so sometimes it causes flaky test because the central coordinates in the seed are generated at random)
         longitude: 180.0000,
         latitude: 90.0000,

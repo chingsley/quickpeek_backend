@@ -31,8 +31,7 @@ CREATE TABLE "locations" (
 -- CreateTable
 CREATE TABLE "questions" (
     "id" TEXT NOT NULL,
-    "title" TEXT NOT NULL,
-    "content" TEXT NOT NULL,
+    "text" TEXT NOT NULL,
     "longitude" DOUBLE PRECISION NOT NULL,
     "latitude" DOUBLE PRECISION NOT NULL,
     "address" TEXT NOT NULL,
@@ -46,7 +45,7 @@ CREATE TABLE "questions" (
 -- CreateTable
 CREATE TABLE "answers" (
     "id" TEXT NOT NULL,
-    "content" TEXT NOT NULL,
+    "text" TEXT NOT NULL,
     "questionId" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,

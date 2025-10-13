@@ -5,7 +5,6 @@ export const sendNotification = async (deviceToken: string, payload: any) => {
   const message = {
     token: deviceToken,
     notification: {
-      title: payload.title,
       body: payload.body,
     },
     data: payload.data, // Any additional data I want to send to FE

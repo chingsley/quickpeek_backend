@@ -66,9 +66,9 @@ const seedTestData = async (prisma: PrismaClient) => {
       await prisma.question.create({
         data: {
           userId: users[i].id,  // Associate each question with one of the users
-          title: `Question ${i + 1}`,
-          content: `Question content ${i + 1}`,
-          location: `${questionLocation.longitude}, ${questionLocation.latitude}`,
+          text: `Question text ${i + 1}`,
+          longitude: questionLocation.longitude,
+          latitude: questionLocation.latitude,
           address: faker.location.streetAddress()
         },
       });

@@ -3,9 +3,7 @@ import Joi from 'joi';
 
 export const validateQuestionCreation = (req: Request, res: Response, next: NextFunction) => {
   const schema = Joi.object({
-    title: Joi.string().min(3).max(50).required(),
-    content: Joi.string().min(3).max(100).required(),
-    // location: Joi.string().required(), // lon, lat of the locatin for which a question is being asked
+    text: Joi.string().min(3).max(100).required(), // the text content of the question
     address: Joi.string().required(), // the textual address of the location, e.g nnpc katampe to be shown to responders. B/c the lon, lat won't make sense to responders,
     longitude: Joi.number().required(),
     latitude: Joi.number().required(),
@@ -20,7 +18,7 @@ export const validateQuestionCreation = (req: Request, res: Response, next: Next
 export const validateAnswerCreation = (req: Request, res: Response, next: NextFunction) => {
   const schema = Joi.object({
     // questionId: Joi.string().required(),
-    content: Joi.string().required(),
+    text: Joi.string().required(),
   });
 
   const { error } = schema.validate(req.body);

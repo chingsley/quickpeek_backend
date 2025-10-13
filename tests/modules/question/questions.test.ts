@@ -49,8 +49,7 @@ describe('questions', () => {
 
     test('should create a question successfully with valid data and token', async () => {
       const questionData = {
-        title: 'Where can I find a good cafe?',
-        content: 'Looking for a nice place to work in downtown.',
+        text: 'Looking for a nice place to work in downtown.',
         longitude: 40.730610,
         latitude: -73.935242,
         address: faker.location.streetAddress(),
@@ -65,8 +64,7 @@ describe('questions', () => {
       expect(response.body.message).toBe('Question created successfully');
       expect(response.body.data).toHaveProperty('id');
       expect(response.body.data).toMatchObject({
-        title: questionData.title,
-        content: questionData.content,
+        text: questionData.text,
         longitude: questionData.longitude,
         latitude: questionData.latitude,
         address: questionData.address,
@@ -76,7 +74,6 @@ describe('questions', () => {
 
     test('should return 400 when required fields are missing', async () => {
       const invalidData = {
-        title: 'Test missing content', // Missing content and location
       };
 
       const response = await request(app)
@@ -85,13 +82,12 @@ describe('questions', () => {
         .send(invalidData);
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toBe('"content" is required');
+      expect(response.body.error).toBe('"text" is required');
     });
 
     test('should return 401 when no token is provided', async () => {
       const questionData = {
-        title: 'Where can I find a good cafe?',
-        content: 'Looking for a nice place to work in downtown.',
+        text: 'Looking for a nice place to work in downtown.',
         longitude: 40.730610,
         latitude: -73.935242,
         address: faker.location.streetAddress(),
@@ -107,8 +103,7 @@ describe('questions', () => {
 
     test('should return 400 when an invalid token is provided', async () => {
       const questionData = {
-        title: 'Where can I find a good cafe?',
-        content: 'Looking for a nice place to work in downtown.',
+        text: 'Looking for a nice place to work in downtown.',
         longitude: 40.730610,
         latitude: -73.935242,
         address: faker.location.streetAddress(),
@@ -163,8 +158,7 @@ describe('questions', () => {
           await prisma.question.create({
             data: {
               userId: i < 2 ? testUser1.id : testUser2.id,  // Associate each question with one of the users
-              title: `Question ${i + 1}`,
-              content: `Question content ${i + 1}`,
+              text: `Question text ${i + 1}`,
               longitude: faker.location.longitude(),
               latitude: faker.location.latitude(),
               address: faker.location.streetAddress(),
@@ -261,8 +255,7 @@ describe('questions', () => {
       question = await prisma.question.create({
         data: {
           userId: testUser1.id,  // Associate each question with one of the users
-          title: 'Queue check',
-          content: 'What is the queue size at Oando filling station',
+          text: 'What is the queue size at Oando filling station',
           longitude: faker.location.longitude(),
           latitude: faker.location.latitude(),
           address: faker.location.streetAddress(),
@@ -290,7 +283,7 @@ describe('questions', () => {
         .post(`/api/v1/questions/${question.id}/answer`)
         .set('Authorization', `Bearer ${user2Token}`)
         .send({
-          content: 'about 17 cars'
+          text: 'about 17 cars'
         });
 
       expect(response.status).toBe(201);
@@ -299,10 +292,10 @@ describe('questions', () => {
     it('should validate required fields', async () => {
       const payload = {
         questionId: question.id,
-        content: 'about 17 cars'
+        text: 'about 17 cars'
       };
       await Promise.all(
-        Array.from(['content'], async field => {
+        Array.from(['text'], async field => {
           const response = await request(app)
             .post(`/api/v1/questions/${question.id}/answer`)
             .set('Authorization', `Bearer ${user2Token}`)
@@ -346,8 +339,7 @@ describe('questions', () => {
         Array.from([questionCreator1, questionCreator2], (qnCreator) => prisma.question.create({
           data: {
             userId: qnCreator.id,
-            title: `${qnCreator.username}'s question`,
-            content: faker.string.alpha({ length: 40 }),
+            text: faker.string.alpha({ length: 40 }),
             longitude: faker.location.longitude(),
             latitude: faker.location.latitude(),
             address: faker.location.streetAddress(),
@@ -364,7 +356,7 @@ describe('questions', () => {
           const answer = await prisma.answer.create({
             data: {
               questionId: question.id,
-              content: `${responder.username} answers ${question.title}`,
+              text: `${responder.username} answers ${question.id}`,
               userId: responder.id,
             },
           });

@@ -70,8 +70,7 @@ const seedTestData = async () => {
       const question = await prisma.question.create({
         data: {
           userId: users[i].id,  // Associate each question with one of the first 5 users
-          title: `Question ${i + 1}`,
-          content: `Question content ${i + 1}`,
+          text: `Question text ${i + 1}`,
           longitude: questionLocation.longitude,
           latitude: questionLocation.latitude,
           address: faker.location.streetAddress(),
@@ -91,7 +90,7 @@ const seedTestData = async () => {
       const answer = await prisma.answer.create({
         data: {
           questionId: questions[qnIdx].id,
-          content: `answer ${answerIdx} to question ${qnIdx}`,
+          text: `answer ${answerIdx} to question ${qnIdx}`,
           userId: users[i + 5].id,
           answerRating: { // creating the answerRating
             create: {

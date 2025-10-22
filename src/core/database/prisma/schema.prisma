@@ -47,9 +47,10 @@ model Question {
   id                      String   @id @default(uuid())
   text                    String
   longitude               Float  // longitude and latitude form the coordinates of the place the user is asking about, e.g: longitude: 69.70293022853721, latitude: -111.4263007731484
-  latitude                Float 
+  latitude                Float
   address                 String  // coordinates of the place the user is asking about, e.g: '7174 Morris Street, Halifax'
   userId                  String
+  status                  QuestionStatus  @default(NEW)
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
 
@@ -57,6 +58,12 @@ model Question {
   user                    User            @relation(fields: [userId], references: [id])
 
   @@map("questions")  // This will map the Question model to the "questions" table in SQL
+}
+
+enum QuestionStatus {
+  NEW
+  PENDING
+  RESOLVED
 }
 
 model Answer {

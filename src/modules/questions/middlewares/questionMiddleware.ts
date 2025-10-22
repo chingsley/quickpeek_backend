@@ -40,6 +40,7 @@ export const validateQuestionCreation = (req: Request, res: Response, next: Next
         "number.min": "Latitude must be >= -90",
         "number.max": "Latitude must be <= 90",
       }),
+    status: Joi.string().valid('NEW', 'PENDING', 'RESOLVED'),
   });
 
   const { error } = schema.validate(req.body, { abortEarly: false });

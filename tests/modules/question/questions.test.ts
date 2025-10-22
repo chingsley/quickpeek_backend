@@ -69,6 +69,7 @@ describe('questions', () => {
         latitude: questionData.latitude,
         address: questionData.address,
         userId: testUser.id,
+        status: 'NEW',
       });
     });
 
@@ -162,6 +163,7 @@ describe('questions', () => {
               longitude: faker.location.longitude(),
               latitude: faker.location.latitude(),
               address: faker.location.streetAddress(),
+              status: 'NEW',
             },
           });
         })
@@ -259,6 +261,7 @@ describe('questions', () => {
           longitude: faker.location.longitude(),
           latitude: faker.location.latitude(),
           address: faker.location.streetAddress(),
+          status: 'NEW',
         },
       });
 
@@ -343,6 +346,7 @@ describe('questions', () => {
             longitude: faker.location.longitude(),
             latitude: faker.location.latitude(),
             address: faker.location.streetAddress(),
+            status: 'NEW',
           }
         }))
       );

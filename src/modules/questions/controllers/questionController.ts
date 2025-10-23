@@ -39,7 +39,7 @@ export const createQuestion = async (req: Request, res: Response) => {
 };
 
 // TODO: paginate this endpoint
-export const getAllQuestionsByUserId = async (req: Request, res: Response) => {
+export const getUserPostedQuestions = async (req: Request, res: Response) => {
   try {
     const questions = await prisma.question.findMany({
       where: { userId: req.user?.userId },
@@ -193,4 +193,23 @@ export const getPendingQuestions = async (req: Request, res: Response) => {
 //   }
 // };
 
+export const getAnsweredQuestions = async (req: Request, res: Response) => {
+  try {
+    const questions = await prisma.question.findMany({
+      where: {
+        answers: {
+          some: {
+            userId: req.user?.userId,
+          },
+        },
+      },
+    });
 
+    res.status(200).json({
+      message: 'Successful',
+      data: questions,
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to retrieve questions' });
+  }
+};

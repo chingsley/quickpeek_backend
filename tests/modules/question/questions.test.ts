@@ -460,4 +460,114 @@ describe('questions', () => {
       expect(data).toHaveLength(0);
     });
   });
+  describe('Get Answered Questions (GET /api/v1/questions/answered)', () => {
+    let user1Token: string;
+    let user2Token: string;
+    let user3Token: string;
+    let testUser1: any;
+    let testUser2: any;
+    let testUser3: any;
+    let question1: Question;
+    let question2: Question;
+    let question3: Question;
+
+    beforeAll(async () => {
+      await clearSeedAll(prisma);
+
+      // Seed users
+      [testUser1, testUser2, testUser3] = await Promise.all(
+        Array.from({ length: 3 }, (_, i) =>
+          prisma.user.create({
+            data: {
+              email: `answeredtestuser${i + 1}@example.com`,
+              password: 'hashedpassword',
+              name: `Test User ${i + 1}`,
+              username: `answeredtestuser${i + 1}`,
+              deviceType: 'ios',
+              deviceToken: `someDeviceToken${i}`,
+              notificationsEnabled: true,
+              locationSharingEnabled: true,
+              isVerified: true,
+            },
+          })
+        )
+      );
+
+      // Seed questions
+      [question1, question2, question3] = await Promise.all(
+        Array.from({ length: 3 }, (_, i) =>
+          prisma.question.create({
+            data: {
+              userId: testUser3.id, // A third user creates the questions
+              text: `Test question ${i + 1}`,
+              longitude: faker.location.longitude(),
+              latitude: faker.location.latitude(),
+              address: faker.location.streetAddress(),
+            },
+          })
+        )
+      );
+
+      // Seed answers
+      await prisma.answer.createMany({
+        data: [
+          { userId: testUser1.id, questionId: question1.id, text: 'Answer 1 by user 1' },
+          { userId: testUser1.id, questionId: question2.id, text: 'Answer 2 by user 1' },
+          { userId: testUser2.id, questionId: question2.id, text: 'Answer 1 by user 2' },
+          { userId: testUser2.id, questionId: question3.id, text: 'Answer 2 by user 2' },
+        ],
+      });
+
+      // Generate JWT tokens
+      user1Token = jwt.sign({ userId: testUser1.id }, process.env.JWT_SECRET!);
+      user2Token = jwt.sign({ userId: testUser2.id }, process.env.JWT_SECRET!);
+      user3Token = jwt.sign({ userId: testUser3.id }, process.env.JWT_SECRET!);
+    });
+
+    afterAll(async () => {
+      await prisma.$disconnect();
+    });
+
+    it('should get all questions answered by testUser1', async () => {
+      const response = await request(app)
+        .get('/api/v1/questions/answered')
+        .set('Authorization', `Bearer ${user1Token}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.data).toHaveLength(2);
+      const questionIds = response.body.data.map((q: any) => q.id);
+      expect(questionIds).toContain(question1.id);
+      expect(questionIds).toContain(question2.id);
+    });
+
+    it('should get all questions answered by testUser2', async () => {
+      const response = await request(app)
+        .get('/api/v1/questions/answered')
+        .set('Authorization', `Bearer ${user2Token}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.data).toHaveLength(2);
+      const questionIds = response.body.data.map((q: any) => q.id);
+      expect(questionIds).toContain(question2.id);
+      expect(questionIds).toContain(question3.id);
+    });
+
+    it('should return an empty array for a user who has not answered any questions', async () => {
+      const response = await request(app)
+        .get('/api/v1/questions/answered')
+        .set('Authorization', `Bearer ${user3Token}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.data).toHaveLength(0);
+    });
+
+    it('should return 401 for an invalid token', async () => {
+      const response = await request(app)
+        .get('/api/v1/questions/answered')
+        .set('Authorization', 'Bearer invalidtoken');
+
+      expect(response.status).toBe(401);
+      expect(response.body.error).toBe('Invalid token');
+    });
+  });
 });

@@ -1,3 +1,6 @@
+-- CreateEnum
+CREATE TYPE "QuestionStatus" AS ENUM ('NEW', 'PENDING', 'RESOLVED');
+
 -- CreateTable
 CREATE TABLE "users" (
     "id" TEXT NOT NULL,
@@ -36,6 +39,7 @@ CREATE TABLE "questions" (
     "latitude" DOUBLE PRECISION NOT NULL,
     "address" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
+    "status" "QuestionStatus" NOT NULL DEFAULT 'NEW',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 

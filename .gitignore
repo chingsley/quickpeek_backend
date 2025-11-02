@@ -6,3 +6,4 @@ dump.rdb
 .DS_Store
 quickpeek-d4c1d-firebase-adminsdk-8bsm6-17bfc8e122.json
 src/core/config/firebase.serviceAccountKey.json
+dist/

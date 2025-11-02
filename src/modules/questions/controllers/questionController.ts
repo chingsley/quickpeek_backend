@@ -43,11 +43,62 @@ export const getUserPostedQuestions = async (req: Request, res: Response) => {
   try {
     const questions = await prisma.question.findMany({
       where: { userId: req.user?.userId },
+      include: {
+        answers: {
+          include: {
+            user: true,
+            answerRating: true,
+          },
+        },
+      },
     });
+
+    const formattedQuestions = questions.map((question) => ({
+      ...question,
+      answer: question.answers[0]?.text,
+      answerRating: question.answers[0]?.answerRating?.rating,
+      responderUsername: question.answers[0]?.user.username,
+    }));
 
     res.status(200).json({
       message: 'Successful',
-      data: questions,
+      data: formattedQuestions,
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to retrieve questions' });
+  }
+};
+
+export const getAnsweredQuestions = async (req: Request, res: Response) => {
+  try {
+    const questions = await prisma.question.findMany({
+      where: {
+        answers: {
+          some: {
+            userId: req.user?.userId,
+          },
+        },
+      },
+      include: {
+        answers: {
+          include: {
+            user: true,
+            answerRating: true,
+          },
+        },
+      },
+    });
+
+    const formattedQuestions = questions.map((question) => ({
+      ...question,
+      answer: question.answers[0]?.text,
+      answerRating: question.answers[0]?.answerRating?.rating,
+      responderUsername: question.answers[0]?.user.username,
+    }));
+
+    res.status(200).json({
+      message: 'Successful',
+      data: formattedQuestions,
     });
   } catch (error) {
     res.status(500).json({ error: 'Failed to retrieve questions' });
@@ -153,63 +204,6 @@ export const getPendingQuestions = async (req: Request, res: Response) => {
 
     return res.json(question);
   } catch (error) {
-    // console.log("\n>>>>>> error: ", error, "\n");
     return res.status(500).json({ error: 'Failed to get question. Internal server error.' });
-  }
-};
-
-// export const getMyQuestions = async (req: Request, res: Response) => {
-//   try {
-//     const { questionId } = req.params;
-
-//     const question = await prisma.question.findUnique({
-//       where: {
-//         id: questionId,
-//       },
-//       include: {
-//         answers: {
-//           include: {
-//             answerRating: true, // Include the rating for each answer
-//             user: {
-//               select: {
-//                 username: true, // Include the responder's username
-//                 userRating: true, // Include the responder's userRating. Will work before userRatings table is a one-to-one relationship with the user table
-//               },
-//             },
-//           },
-//         },
-//         user: {
-//           select: {
-//             username: true, // Include the question creator's username
-//           },
-//         },
-//       },
-//     });
-
-//     return res.json(question);
-//   } catch (error) {
-//     // console.log("\n>>>>>> error: ", error, "\n");
-//     return res.status(500).json({ error: 'Failed to get question. Internal server error.' });
-//   }
-// };
-
-export const getAnsweredQuestions = async (req: Request, res: Response) => {
-  try {
-    const questions = await prisma.question.findMany({
-      where: {
-        answers: {
-          some: {
-            userId: req.user?.userId,
-          },
-        },
-      },
-    });
-
-    res.status(200).json({
-      message: 'Successful',
-      data: questions,
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to retrieve questions' });
   }
 };

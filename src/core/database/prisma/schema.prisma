@@ -46,9 +46,9 @@ model Location {
 model Question {
   id                      String   @id @default(uuid())
   text                    String
-  longitude               Float  // longitude and latitude form the coordinates of the place the user is asking about, e.g: longitude: 69.70293022853721, latitude: -111.4263007731484
-  latitude                Float
-  address                 String  // coordinates of the place the user is asking about, e.g: '7174 Morris Street, Halifax'
+  longitude               Float  // longitude coordinates of the place the user is asking about, e.g: longitude: 69.70293022853721
+  latitude                Float  // latitude coordinates of the place the user is asking about, e.g: latitude: -111.4263007731484
+  address                 String  // address of the place the user is asking about, e.g: '7174 Morris Street, Halifax'
   userId                  String
   status                  QuestionStatus  @default(NEW)
   createdAt               DateTime  @default(now())

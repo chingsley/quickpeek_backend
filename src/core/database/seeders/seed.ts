@@ -35,7 +35,8 @@ const seedTestData = async () => {
     Array.from({ length: 50 }, async (_, i) => {
       // Generate random locations around the central point, within a 20 km radius
       const userLocation = generateRandomLocationWithinRadius(centralLongitude, centralLatitude, 20);
-      const email = `test${i + 1}@quickpeek.com`;
+      const userCount = i + 1 < 10 ? `0${i}` : i;
+      const email = `test${userCount}@quickpeek.com`;
       const password = await bcrypt.hash(email, 10); // each user's email is their password
 
       const user = await prisma.user.create({
@@ -70,7 +71,7 @@ const seedTestData = async () => {
       const question = await prisma.question.create({
         data: {
           userId: users[i].id,  // Associate each question with one of the first 5 users
-          text: `Question text ${i + 1}`,
+          text: `Question text ${i}`,
           longitude: questionLocation.longitude,
           latitude: questionLocation.latitude,
           address: faker.location.streetAddress(),
@@ -80,18 +81,45 @@ const seedTestData = async () => {
     })
   );
 
-  // Create 10 answers (twice the question number), two for each question
-  const dict: { [key: number]: boolean; } = {};
+  // // Create 10 answers (twice the question number), two for each question
+  // const dict: { [key: number]: boolean; } = {};
+  // const answers = await Promise.all(
+  //   Array.from({ length: questions.length * 2 }, async (_, i) => {
+  //     const qnIdx = i % questions.length;
+  //     const answerIdx = dict[qnIdx] ? 2 : 1;
+  //     dict[qnIdx] = true;
+  //     const answer = await prisma.answer.create({
+  //       data: {
+  //         questionId: questions[qnIdx].id,
+  //         text: `answer ${answerIdx} to question ${qnIdx}`,
+  //         userId: users[i + 5].id,
+  //         answerRating: { // creating the answerRating
+  //           create: {
+  //             rating: faker.number.int({ min: 1, max: 5 }), // Generate a random rating between 1 and 5
+  //             feedback: faker.string.alpha({ length: 20 }) // Generate random 20 character string
+  //           }
+  //         }
+  //       },
+  //     });
+  //     return answer;
+  //   })
+  // );
+
+
+  // 5 quetions, 5 answers, 5 users (we chose the first 5 users)
+  // qn 0 answered by user 1
+  // qn 1 answered by user 2
+  // qn 2 answered by user 3
+  // qn 3 answered by user 4
+  // qn 4 answered by user 0
   const answers = await Promise.all(
-    Array.from({ length: questions.length * 2 }, async (_, i) => {
-      const qnIdx = i % questions.length;
-      const answerIdx = dict[qnIdx] ? 2 : 1;
-      dict[qnIdx] = true;
+    Array.from({ length: questions.length }, async (_, i) => {
+      const userIdx = (i + 1) % questions.length;
       const answer = await prisma.answer.create({
         data: {
-          questionId: questions[qnIdx].id,
-          text: `answer ${answerIdx} to question ${qnIdx}`,
-          userId: users[i + 5].id,
+          questionId: questions[i].id,
+          text: `Answer: question ${i} answered by user ${userIdx}`,
+          userId: users[userIdx].id,
           answerRating: { // creating the answerRating
             create: {
               rating: faker.number.int({ min: 1, max: 5 }), // Generate a random rating between 1 and 5

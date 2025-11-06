@@ -45,20 +45,57 @@ export const getUserPostedQuestions = async (req: Request, res: Response) => {
       where: { userId: req.user?.userId },
       include: {
         answers: {
-          include: {
-            user: true,
-            answerRating: true,
+          select: {
+            id: true,
+            text: true,
+            user: {
+              select: {
+                id: true,
+                username: true,
+                userRating: {
+                  select: {
+                    totalRating: true,
+                    answersCount: true,
+                  },
+                },
+              },
+            },
+            answerRating: {
+              select: {
+                rating: true,
+              },
+            },
           },
         },
       },
     });
 
-    const formattedQuestions = questions.map((question) => ({
-      ...question,
-      answer: question.answers[0]?.text,
-      answerRating: question.answers[0]?.answerRating?.rating,
-      responderUsername: question.answers[0]?.user.username,
-    }));
+    const formattedQuestions = questions.map((question) => {
+      return {
+        id: question.id,
+        text: question.text,
+        longitude: question.longitude,
+        latitude: question.latitude,
+        address: question.address,
+        userId: question.userId,
+        status: question.status,
+        createdAt: question.createdAt,
+        updatedAt: question.updatedAt,
+        answers: question.answers.map((answer) => {
+          const userRating = answer.user.userRating;
+          const responderAverageRating =
+            userRating && userRating.answersCount > 0
+              ? userRating.totalRating / userRating.answersCount
+              : 0;
+          return {
+            text: answer.text,
+            rating: answer.answerRating?.rating,
+            responderUsername: answer.user.username,
+            responderAverageRating,
+          };
+        }),
+      };
+    });
 
     res.status(200).json({
       message: 'Successful',
@@ -81,20 +118,57 @@ export const getAnsweredQuestions = async (req: Request, res: Response) => {
       },
       include: {
         answers: {
-          include: {
-            user: true,
-            answerRating: true,
+          select: {
+            id: true,
+            text: true,
+            user: {
+              select: {
+                id: true,
+                username: true,
+                userRating: {
+                  select: {
+                    totalRating: true,
+                    answersCount: true,
+                  },
+                },
+              },
+            },
+            answerRating: {
+              select: {
+                rating: true,
+              },
+            },
           },
         },
       },
     });
 
-    const formattedQuestions = questions.map((question) => ({
-      ...question,
-      answer: question.answers[0]?.text,
-      answerRating: question.answers[0]?.answerRating?.rating,
-      responderUsername: question.answers[0]?.user.username,
-    }));
+    const formattedQuestions = questions.map((question) => {
+      return {
+        id: question.id,
+        text: question.text,
+        longitude: question.longitude,
+        latitude: question.latitude,
+        address: question.address,
+        userId: question.userId,
+        status: question.status,
+        createdAt: question.createdAt,
+        updatedAt: question.updatedAt,
+        answers: question.answers.map((answer) => {
+          const userRating = answer.user.userRating;
+          const responderAverageRating =
+            userRating && userRating.answersCount > 0
+              ? userRating.totalRating / userRating.answersCount
+              : 0;
+          return {
+            text: answer.text,
+            rating: answer.answerRating?.rating,
+            responderUsername: answer.user.username,
+            responderAverageRating,
+          };
+        }),
+      };
+    });
 
     res.status(200).json({
       message: 'Successful',

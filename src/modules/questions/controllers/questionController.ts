@@ -92,6 +92,7 @@ export const getUserPostedQuestions = async (req: Request, res: Response) => {
             rating: answer.answerRating?.rating,
             responderUsername: answer.user.username,
             responderAverageRating,
+            responderID: answer.user.id,
           };
         }),
       };
@@ -165,6 +166,7 @@ export const getAnsweredQuestions = async (req: Request, res: Response) => {
             rating: answer.answerRating?.rating,
             responderUsername: answer.user.username,
             responderAverageRating,
+            responderID: answer.user.id,
           };
         }),
       };

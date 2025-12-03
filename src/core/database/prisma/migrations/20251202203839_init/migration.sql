@@ -1,5 +1,5 @@
 -- CreateEnum
-CREATE TYPE "QuestionStatus" AS ENUM ('NEW', 'PENDING', 'RESOLVED');
+CREATE TYPE "QuestionStatus" AS ENUM ('OPEN', 'PENDING_ANSWER', 'ANSWERED', 'CANCELLED');
 
 -- CreateTable
 CREATE TABLE "users" (
@@ -39,9 +39,11 @@ CREATE TABLE "questions" (
     "latitude" DOUBLE PRECISION NOT NULL,
     "address" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
-    "status" "QuestionStatus" NOT NULL DEFAULT 'NEW',
+    "status" "QuestionStatus" NOT NULL DEFAULT 'OPEN',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "claimedByUserId" TEXT,
+    "claimedAt" TIMESTAMP(3),
 
     CONSTRAINT "questions_pkey" PRIMARY KEY ("id")
 );
@@ -113,6 +115,9 @@ ALTER TABLE "locations" ADD CONSTRAINT "locations_userId_fkey" FOREIGN KEY ("use
 
 -- AddForeignKey
 ALTER TABLE "questions" ADD CONSTRAINT "questions_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "questions" ADD CONSTRAINT "questions_claimedByUserId_fkey" FOREIGN KEY ("claimedByUserId") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "answers" ADD CONSTRAINT "answers_questionId_fkey" FOREIGN KEY ("questionId") REFERENCES "questions"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

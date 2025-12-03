@@ -2,7 +2,7 @@ import { Job } from 'bull';
 import prisma from '../../../src/core/database/prisma/client';
 import * as notifyNearbyUsersJob from '../../../src/core/jobs/notifyNearbyUsersJob'; // Adjust the path as needed
 import * as fbPushMsg from '../../../src/core/messaging/firebase.push';
-import { calculateHaversineDistance } from '../../../src/common/utils/geo';
+import { calculateHaversineDistance } from '../../../src/common/utils/geo.utils';
 import seedTestData from '../../seed/notifyNearbyUsers.test.seed';
 import clearAllSeed from '../../seed/clear.seed';
 

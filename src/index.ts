@@ -1,8 +1,17 @@
+// src/index.ts
+import { createServer } from 'http';
 import app from './app';
 import config from './core/config/default';
+import { initSocket } from './core/socket/socket.server';
 
 const PORT = config.port || 3000;
 
-app.listen(PORT, () => {
+const httpServer = createServer(app);
+
+initSocket(httpServer);
+
+import './core/queues';
+
+httpServer.listen(PORT, () => {
   console.log(`Server is running on port: ${PORT}`);
 });

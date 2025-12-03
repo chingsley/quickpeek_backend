@@ -10,6 +10,7 @@ const prisma = new PrismaClient({
       url: config.db.url[env],
     },
   },
+  // log: ['query', 'info', 'warn', 'error']
 });
 
 export default prisma;

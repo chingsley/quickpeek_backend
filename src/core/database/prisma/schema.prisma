@@ -22,7 +22,8 @@ model User {
   updatedAt                    DateTime       @updatedAt
 
   location                     Location?
-  questions                    Question[]
+  questions                    Question[]     @relation("CreatedQuestions")
+  claimedQuestions             Question[]     @relation("ClaimedQuestions")
   answers                      Answer[]
   userRating                   UserRating?
   transactions                 Transaction[]
@@ -43,6 +44,13 @@ model Location {
   @@map("locations")  // This will map the Location model to the "locations" table in SQL
 }
 
+enum QuestionStatus {
+  OPEN
+  PENDING_ANSWER
+  ANSWERED
+  CANCELLED
+}
+
 model Question {
   id                      String   @id @default(uuid())
   text                    String
@@ -50,20 +58,17 @@ model Question {
   latitude                Float  // latitude coordinates of the place the user is asking about, e.g: latitude: -111.4263007731484
   address                 String  // address of the place the user is asking about, e.g: '7174 Morris Street, Halifax'
   userId                  String
-  status                  QuestionStatus  @default(NEW)
+  status                  QuestionStatus  @default(OPEN)
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
+  claimedByUserId         String?        // ID of the user currently answering
+  claimedAt               DateTime?      // When the lock started
 
   answers                 Answer[]
-  user                    User            @relation(fields: [userId], references: [id])
+  user                    User            @relation("CreatedQuestions", fields: [userId], references: [id])
+  claimedByUser           User?            @relation("ClaimedQuestions", fields: [claimedByUserId], references: [id])
 
   @@map("questions")  // This will map the Question model to the "questions" table in SQL
-}
-
-enum QuestionStatus {
-  NEW
-  PENDING
-  RESOLVED
 }
 
 model Answer {

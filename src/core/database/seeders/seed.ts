@@ -27,8 +27,14 @@ const seedTestData = async () => {
   await prisma.user.deleteMany({});
 
   // Create a central point for the questions to be close to
-  const centralLongitude = parseFloat(`${faker.location.longitude()}`);
-  const centralLatitude = parseFloat(`${faker.location.latitude()}`);
+  // const centralLongitude = parseFloat(`${faker.location.longitude()}`);
+  // const centralLatitude = parseFloat(`${faker.location.latitude()}`);
+  /**
+   * We will use the address below as central coordinates for easy testing.
+   * "Spryfield Shopping Mall, Spryfield, Halifax, Halifax Regional Municipality, Halifax County, Nova Scotia, B3R 2H9, Canada"
+   */
+  const centralLongitude = parseFloat('-63.6192829');
+  const centralLatitude = parseFloat('44.6126388');
 
   // Create 50 users with locations around the central point
   const users = await Promise.all(
@@ -80,30 +86,6 @@ const seedTestData = async () => {
       return question;
     })
   );
-
-  // // Create 10 answers (twice the question number), two for each question
-  // const dict: { [key: number]: boolean; } = {};
-  // const answers = await Promise.all(
-  //   Array.from({ length: questions.length * 2 }, async (_, i) => {
-  //     const qnIdx = i % questions.length;
-  //     const answerIdx = dict[qnIdx] ? 2 : 1;
-  //     dict[qnIdx] = true;
-  //     const answer = await prisma.answer.create({
-  //       data: {
-  //         questionId: questions[qnIdx].id,
-  //         text: `answer ${answerIdx} to question ${qnIdx}`,
-  //         userId: users[i + 5].id,
-  //         answerRating: { // creating the answerRating
-  //           create: {
-  //             rating: faker.number.int({ min: 1, max: 5 }), // Generate a random rating between 1 and 5
-  //             feedback: faker.string.alpha({ length: 20 }) // Generate random 20 character string
-  //           }
-  //         }
-  //       },
-  //     });
-  //     return answer;
-  //   })
-  // );
 
 
   // 5 quetions, 5 answers, 5 users (we chose the first 5 users)

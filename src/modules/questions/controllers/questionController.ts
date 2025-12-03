@@ -1,33 +1,23 @@
+// src / modules / questions / controllers / questionController.ts;
+
 import { Answer } from '@prisma/client';
 import { Request, Response } from 'express';
 // import { Prisma, Question } from '@prisma/client'; // Import Prisma types
 import prisma from '../../../core/database/prisma/client';
 import { notifyNearbyUsersQueue } from '../../../core/queues/notifyNearbyUsersQueue';
 import { sendAnswerToquestionCreatorQueue } from '../../../core/queues/sendAnswerToQuestionCreatorQueue';
+import redisClient from '../../../core/config/redis'; // Verified path
+import { broadcastQuestionUpdate, io } from '../../../core/socket/socket.server';
+import { questionTimeoutQueue } from '../../../core/queues/questionTimeoutQueue';
 
 
 export const createQuestion = async (req: Request, res: Response) => {
   try {
     const { text, latitude, longitude, address } = req.body;
     const question = await prisma.question.create({
-      data: {
-        text,
-        longitude,
-        latitude,
-        address,
-        userId: req.user!.userId,
-      },
+      data: { ...req.body, userId: req.user!.userId, },
     });
-
-    // const [questionLon, questionLat] = location.split(',').map(Number);
-    notifyNearbyUsersQueue.add({
-      questionId: question.id,
-      questionLon: question.longitude,
-      questionLat: question.latitude,
-      questionAddress: address,
-      questionCreatorId: question.userId,
-      questionText: text,
-    });
+    notifyNearbyUsersQueue.add({ question });
 
     res.status(201).json({
       message: 'Question created successfully',
@@ -225,7 +215,7 @@ export const getAnswersByQuestionId = async (req: Request, res: Response) => {
       where: {
         questionId,
         question: {
-          userId,  // Filter to only include questions created by the requesting user
+          userId,
         },
       },
       include: {
@@ -272,7 +262,7 @@ export const getPendingQuestions = async (req: Request, res: Response) => {
       include: {
         user: {
           select: {
-            username: true, // Include the question creator's username
+            username: true,
           },
         },
       },
@@ -281,5 +271,85 @@ export const getPendingQuestions = async (req: Request, res: Response) => {
     return res.json(question);
   } catch (error) {
     return res.status(500).json({ error: 'Failed to get question. Internal server error.' });
+  }
+};
+
+export const claimQuestion = async (req: Request, res: Response) => {
+  const { questionId } = req.params;
+  const userId = req.user!.userId;
+  const LOCK_DURATION_MS = 10 * 60 * 1000; // 10 Minutes
+
+  try {
+    const lockKey = `lock:question:${questionId}`;
+
+    // 1. Redis Atomic Check: NX = Only set if Not Exists, PX = Expiry in MS
+    const acquired = await redisClient.set(lockKey, userId, 'PX', LOCK_DURATION_MS, 'NX');
+
+    if (!acquired) {
+      return res.status(409).json({ error: 'This question has already been claimed by another user.' });
+    }
+
+    // 2. Update Database
+    const updatedQuestion = await prisma.question.update({
+      where: { id: questionId },
+      data: {
+        status: 'PENDING_ANSWER',
+        claimedByUserId: userId,
+        claimedAt: new Date(),
+      },
+    });
+
+    // 3. Start Timeout Timer (Bull Queue)
+    // Ensure you have created the queue as described in the previous step
+    await questionTimeoutQueue.add(
+      { questionId, claimedByUserId: userId },
+      { delay: LOCK_DURATION_MS }
+    );
+
+    // 4. Notify everyone else to hide this question
+    broadcastQuestionUpdate(questionId, { status: 'PENDING_ANSWER', claimedByUserId: userId });
+
+    res.json({ message: 'Question claimed successfully', question: updatedQuestion });
+
+  } catch (error) {
+    console.error("Claim Error:", error);
+    // Rollback Redis lock if DB update fails
+    await redisClient.del(`lock:question:${questionId}`);
+    res.status(500).json({ message: 'Error claiming question' });
+  }
+};
+
+// TODO: Calling this endpoint everytime user opens the app to get nearby question is expensive. Consider implementing caching or rate limiting.
+export const getNearbyQuestions = async (req: Request, res: Response) => {
+  try {
+    const { latitude, longitude } = req.query;
+
+    if (!latitude || !longitude) {
+      return res.status(400).json({ error: "Latitude and Longitude required" });
+    }
+
+    const lat = parseFloat(latitude as string);
+    const lon = parseFloat(longitude as string);
+    const radiusInKm = parseFloat(process.env.RADIUS_OF_CONCERN_IN_KM || '3'); // Default 3km
+
+    // Raw SQL to find OPEN questions within radius
+    const nearbyQuestions = await prisma.$queryRaw`
+      SELECT id, text, address, longitude, latitude, status, "createdAt", "userId"
+      FROM questions
+      WHERE status = 'OPEN'
+      AND (6371 * acos(
+          cos(radians(${lat})) 
+          * cos(radians(latitude)) 
+          * cos(radians(longitude) - radians(${lon})) 
+          + sin(radians(${lat})) * sin(radians(latitude))
+      )) <= ${radiusInKm}
+      ORDER BY "createdAt" DESC
+      LIMIT 20;
+    `;
+
+    res.json({ message: "Successful", data: nearbyQuestions });
+  } catch (error) {
+    console.error("Error fetching nearby questions:", error);
+    res.status(500).json({ error: "Failed to fetch nearby questions" });
   }
 };

@@ -4,32 +4,62 @@ import {
   getAnsweredQuestions, getNearbyQuestions,
   createQuestion, getUserPostedQuestions,
   getPendingQuestions,
-  claimQuestion
+  claimQuestion,
+  assignQuestion,
+  reassignQuestion,
+  getAssignedQuestions,
 } from './../controllers/questionController';
 import {
   validateQuestionCreation, validateAnswerCreation,
   validateGetNearbyQuestionsPayload,
+  validateAssignQuestion,
+  validateReassignQuestion,
 } from './../middlewares/questionMiddleware';
-import { Router } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { authenticateToken } from '../../../api/middlewares/authMiddleware';
-
+import { answerImageUpload } from '../../../api/middlewares/uploadMiddleware';
+import {
+  questionCreationLimiter,
+  nearbyReadLimiter,
+  answerSubmissionLimiter,
+} from '../../../api/middlewares/rateLimitMiddleware';
+import Joi from 'joi';
 
 const router = Router();
 
-router.post('/', authenticateToken, validateQuestionCreation, createQuestion); // Create question
-router.get('/', authenticateToken, getUserPostedQuestions); // Get all questions by user ID *** userId is gotten from token, this should be paginated as user may have posted many questions. Maybe get 10 most recent questions
-router.get('/answered', authenticateToken, getAnsweredQuestions); // Get all questions answered by a user
-router.get('/nearby', authenticateToken, validateGetNearbyQuestionsPayload, getNearbyQuestions);
-router.post('/:questionId/claim', authenticateToken, claimQuestion);
-router.post('/:questionId/answer', authenticateToken, validateAnswerCreation, createAnswerForQuestion);
-router.get('/:questionId/answers', authenticateToken, getAnswersByQuestionId);
-// router.get('/myQuestions', authenticateToken, getMyQuestions); // a paginated endpoint that returns a user's own questions
-
-
 /**
- * This endpoint will likely be updated later to get a user's pending questions by querying the the 'pending_questions'
- * table using the userId. The userId will be gotten from the token of the logged-in user. For now, we use questionIds from query
+ * Answer-submission middleware: accepts either multipart/form-data (with an
+ * optional `image` file and text fields) or application/json. In the multipart
+ * case multer populates req.body with the text fields, then we run the same
+ * Joi validation on the resulting body.
  */
-router.get('/pending', authenticateToken, getPendingQuestions); // get /questions/pending?questionIds=id1,id2,id3 // should acccept a max of 3 uuid's as query params.
+const answerSubmission = (req: Request, res: Response, next: NextFunction) => {
+  const isMultipart = (req.headers['content-type'] || '').startsWith('multipart/');
+  if (!isMultipart) {
+    return validateAnswerCreation(req, res, next);
+  }
+  answerImageUpload(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message });
+    // Normalize text field: multer puts it in req.body.text (possibly as an array).
+    const text = Array.isArray(req.body.text) ? req.body.text[0] : req.body.text;
+    const { error } = Joi.object({ text: Joi.string().required() }).validate({ text });
+    if (error) return res.status(400).json({ error: error.details[0].message });
+    req.body.text = text;
+    next();
+  });
+};
+
+router.post('/', authenticateToken, questionCreationLimiter, validateQuestionCreation, createQuestion); // Create question DRAFT
+router.get('/', authenticateToken, getUserPostedQuestions);
+router.get('/answered', authenticateToken, getAnsweredQuestions);
+router.get('/assigned', authenticateToken, getAssignedQuestions); // Responder inbox
+router.get('/nearby', authenticateToken, nearbyReadLimiter, validateGetNearbyQuestionsPayload, getNearbyQuestions);
+router.post('/:questionId/assign', authenticateToken, questionCreationLimiter, validateAssignQuestion, assignQuestion);
+router.post('/:questionId/reassign', authenticateToken, questionCreationLimiter, validateReassignQuestion, reassignQuestion);
+router.post('/:questionId/claim', authenticateToken, claimQuestion); // legacy race-to-claim (deprecated)
+router.post('/:questionId/answer', authenticateToken, answerSubmissionLimiter, answerSubmission, createAnswerForQuestion);
+router.get('/:questionId/answers', authenticateToken, getAnswersByQuestionId);
+
+router.get('/pending', authenticateToken, getPendingQuestions);
 
 export default router;

@@ -7,7 +7,7 @@ export const validateUserRegistration = (req: Request, res: Response, next: Next
     username: Joi.string().lowercase().min(3).max(30).required(),
     email: Joi.string().lowercase().email().required(),
     password: Joi.string().min(6).required(),
-    deviceType: Joi.string().trim().valid('android', 'ios').required(),
+    deviceType: Joi.string().trim().valid('android', 'ios', 'web').required(),
     deviceToken: Joi.string().trim().allow('').optional(),
     notificationsEnabled: Joi.when('deviceToken', {
       is: Joi.exist().not('').not(null), // Truthy and not empty string and not null
@@ -33,7 +33,7 @@ export const validateUserLogin = (req: Request, res: Response, next: NextFunctio
   const schema = Joi.object({
     email: Joi.string().lowercase().email().required(),
     password: Joi.string().min(6).required(),
-    deviceType: Joi.string().trim().valid(...['android', 'ios']).required(),
+    deviceType: Joi.string().trim().valid(...['android', 'ios', 'web']).required(),
     deviceToken: Joi.string().trim().allow('').optional(),
     notificationsEnabled: Joi.when('deviceToken', {
       is: Joi.exist().not('').not(null), // Truthy and not empty string and not null
@@ -59,5 +59,35 @@ export const validateUserLocation = (req: Request, res: Response, next: NextFunc
   const { error } = schema.validate(req.body);
   if (error) return res.status(400).json({ error: error.details[0].message });
 
+  next();
+};
+
+export const validateUserProfileUpdate = (req: Request, res: Response, next: NextFunction) => {
+  const schema = Joi.object({
+    name: Joi.string().min(3).max(30).optional(),
+    username: Joi.string().lowercase().min(3).max(30).optional(),
+    notificationsEnabled: Joi.boolean().optional(),
+    locationSharingEnabled: Joi.boolean().optional(),
+    deviceToken: Joi.string().trim().allow('').optional(),
+  }).min(1); // at least one field must be provided
+
+  const { error, value } = schema.validate(req.body);
+  if (error) return res.status(400).json({ error: error.details[0].message });
+
+  req.body = value;
+  next();
+};
+
+export const validateNearbyRespondersQuery = (req: Request, res: Response, next: NextFunction) => {
+  const schema = Joi.object({
+    latitude: Joi.number().required(),
+    longitude: Joi.number().required(),
+    sort: Joi.string().valid('rating', 'proximity').default('proximity'),
+  });
+
+  const { error, value } = schema.validate(req.query);
+  if (error) return res.status(400).json({ error: error.details[0].message });
+
+  req.query = value;
   next();
 };

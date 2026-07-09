@@ -50,3 +50,15 @@ export const broadcastQuestionUpdate = (questionId: string, payload: any) => {
     io.emit('question:update', { questionId, ...payload });
   }
 };
+
+/**
+ * Emit a socket event to a single user's room (`user:<userId>`).
+ * Returns true if io was available (delivery is best-effort — the user
+ * may simply not be connected, which is fine; a push notification
+ * covers offline users).
+ */
+export const emitToUser = (userId: string, event: string, payload: any): boolean => {
+  if (!io) return false;
+  io.to(`user:${userId}`).emit(event, payload);
+  return true;
+};

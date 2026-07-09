@@ -96,3 +96,35 @@ export const validateGetNearbyQuestionsPayload = (req: Request, res: Response, n
 
   next();
 };
+
+export const validateAssignQuestion = (req: Request, res: Response, next: NextFunction) => {
+  const schema = Joi.object({
+    responderId: Joi.string().required().messages({
+      'string.empty': 'responderId is required',
+    }),
+    // Optional override of the default TTR window (ms). Defaults are applied
+    // in the controller from QUESTION_TIME_TO_RESPOND_MS.
+    timeToRespondMs: Joi.number().integer().min(30 * 1000).max(24 * 60 * 60 * 1000).optional(),
+  });
+
+  const { error, value } = schema.validate(req.body);
+  if (error) return res.status(400).json({ error: error.details[0].message });
+
+  req.body = value;
+  next();
+};
+
+export const validateReassignQuestion = (req: Request, res: Response, next: NextFunction) => {
+  const schema = Joi.object({
+    responderId: Joi.string().required().messages({
+      'string.empty': 'responderId is required',
+    }),
+    timeToRespondMs: Joi.number().integer().min(30 * 1000).max(24 * 60 * 60 * 1000).optional(),
+  });
+
+  const { error, value } = schema.validate(req.body);
+  if (error) return res.status(400).json({ error: error.details[0].message });
+
+  req.body = value;
+  next();
+};

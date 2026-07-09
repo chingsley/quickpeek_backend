@@ -10,6 +10,7 @@ import {
   errCodeConstants,
   PRISMA_UNIQUE_CONSTRAINT_VIOLATION_CODE
 } from './../../../common/constants/index';
+import { getUserRating } from '../../../common/utils/ratings';
 
 
 const JWT_SECRET = config.jwtSecret!;
@@ -111,5 +112,215 @@ export const updateUserLocation = async (req: Request, res: Response) => {
     });
   } catch (error) {
     res.status(500).json({ error: 'Failed to send user location to the queue' });
+  }
+};
+
+/**
+ * GET /api/v1/users
+ * Returns the authenticated user's profile, including their average rating
+ * (read-through cache), answers count, and questions-answered count.
+ */
+export const getUserProfile = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.userId;
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        location: { select: { latitude: true, longitude: true } },
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const rating = await getUserRating(userId);
+    const answersCount = await prisma.answer.count({ where: { userId } });
+
+    const { password, ...safeUser } = user;
+    return res.status(200).json({
+      message: 'Successful',
+      data: {
+        ...safeUser,
+        rating: {
+          averageRating: rating.averageRating,
+          totalRating: rating.totalRating,
+          answersCount: rating.answersCount,
+        },
+        answersCount,
+      },
+    });
+  } catch (error) {
+    console.error('getUserProfile error:', error);
+    return res.status(500).json({ error: 'Failed to fetch user profile' });
+  }
+};
+
+/**
+ * PUT /api/v1/users
+ * Updates editable profile fields (name, username, notificationsEnabled,
+ * locationSharingEnabled, deviceToken). Password/email changes are intentionally
+ * out of scope here. Invalidates the user-rating cache is not needed because
+ * ratings are not edited here.
+ */
+export const updateUserProfile = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.userId;
+    const { name, username, notificationsEnabled, locationSharingEnabled, deviceToken } = req.body;
+
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...(name !== undefined ? { name } : {}),
+        ...(username !== undefined ? { username } : {}),
+        ...(notificationsEnabled !== undefined ? { notificationsEnabled } : {}),
+        ...(locationSharingEnabled !== undefined ? { locationSharingEnabled } : {}),
+        ...(deviceToken !== undefined ? { deviceToken } : {}),
+      },
+      include: {
+        location: { select: { latitude: true, longitude: true } },
+      },
+    });
+
+    const rating = await getUserRating(userId);
+    const { password, ...safeUser } = updated;
+
+    return res.status(200).json({
+      message: 'Profile updated successfully',
+      data: {
+        ...safeUser,
+        rating: {
+          averageRating: rating.averageRating,
+          totalRating: rating.totalRating,
+          answersCount: rating.answersCount,
+        },
+      },
+    });
+  } catch (error: any) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === PRISMA_UNIQUE_CONSTRAINT_VIOLATION_CODE) {
+      const uniqueField = error.meta?.target as string[];
+      let errorMessage = 'Unique constraint violation';
+      if (uniqueField && uniqueField.includes('username')) {
+        errorMessage = 'Username already exists. Choose a different username.';
+      }
+      return res.status(409).json({ error: errorMessage });
+    }
+    console.error('updateUserProfile error:', error);
+    return res.status(500).json({ error: 'Failed to update user profile' });
+  }
+};
+
+export type NearbyResponderRow = {
+  userId: string;
+  username: string;
+  name: string;
+  distance: number;
+  averageRating: number;
+  totalRating: number;
+  answersCount: number;
+  notificationsEnabled: boolean;
+  isOnline: boolean;
+};
+
+/**
+ * GET /api/v1/users/nearby?latitude=&longitude=&sort=rating|proximity
+ * Returns nearby users that the questioner can choose as a responder.
+ * Excludes the requesting user. Sorted by rating desc or proximity asc.
+ */
+export const getNearbyResponders = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.userId;
+    const { latitude, longitude, sort } = req.query;
+
+    if (!latitude || !longitude) {
+      return res.status(400).json({ error: 'Latitude and Longitude required' });
+    }
+
+    const lat = parseFloat(latitude as string);
+    const lon = parseFloat(longitude as string);
+    const radiusInKm = parseFloat(process.env.RADIUS_OF_CONCERN_IN_KM || '3');
+    const limit = parseInt(process.env.NEARBY_RESPONDERS_LIMIT || '20', 10);
+
+    // Raw SQL: nearby users (excluding self) within radius, joined with their
+    // rating summary and last-known location freshness.
+    const rows = await prisma.$queryRaw<
+      Array<{
+        id: string;
+        username: string;
+        name: string;
+        latitude: number;
+        longitude: number;
+        distance: number;
+        totalRating: number | null;
+        answersCount: number | null;
+        notificationsEnabled: boolean;
+        locationUpdatedAt: Date | null;
+      }>
+    >`
+      SELECT
+        u.id,
+        u.username,
+        u.name,
+        loc.latitude,
+        loc.longitude,
+        (6371 * acos(
+            cos(radians(${lat}))
+            * cos(radians(loc.latitude))
+            * cos(radians(loc.longitude) - radians(${lon}))
+            + sin(radians(${lat})) * sin(radians(loc.latitude))
+        )) AS distance,
+        COALESCE(ur."totalRating", 0) AS "totalRating",
+        COALESCE(ur."answersCount", 0) AS "answersCount",
+        u."notificationsEnabled",
+        loc."updatedAt" AS "locationUpdatedAt"
+      FROM users u
+      JOIN locations loc ON loc."userId" = u.id
+      LEFT JOIN user_ratings ur ON ur."userId" = u.id
+      WHERE u.id <> ${userId}
+        AND loc."updatedAt" > NOW() - INTERVAL '24 hours'
+        AND (6371 * acos(
+            cos(radians(${lat}))
+            * cos(radians(loc.latitude))
+            * cos(radians(loc.longitude) - radians(${lon}))
+            + sin(radians(${lat})) * sin(radians(loc.latitude))
+        )) <= ${radiusInKm}
+    `;
+
+    // Consider a user "online/active" if their location was updated recently.
+    const now = Date.now();
+    const responders: NearbyResponderRow[] = rows.map((r) => {
+      const totalRating = r.totalRating ?? 0;
+      const answersCount = r.answersCount ?? 0;
+      const averageRating = answersCount > 0 ? totalRating / answersCount : 0;
+      const locationUpdatedAtMs = r.locationUpdatedAt ? new Date(r.locationUpdatedAt).getTime() : 0;
+      const isOnline = now - locationUpdatedAtMs <= 5 * 60 * 1000; // last 5 min
+      return {
+        userId: r.id,
+        username: r.username,
+        name: r.name,
+        distance: Number(r.distance),
+        averageRating,
+        totalRating,
+        answersCount,
+        notificationsEnabled: r.notificationsEnabled,
+        isOnline,
+      };
+    });
+
+    if (sort === 'rating') {
+      responders.sort((a, b) => b.averageRating - a.averageRating || a.distance - b.distance);
+    } else {
+      // default: proximity
+      responders.sort((a, b) => a.distance - b.distance);
+    }
+
+    return res.status(200).json({
+      message: 'Successful',
+      data: responders.slice(0, limit),
+    });
+  } catch (error) {
+    console.error('getNearbyResponders error:', error);
+    return res.status(500).json({ error: 'Failed to fetch nearby responders' });
   }
 };

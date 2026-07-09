@@ -62,40 +62,22 @@ export const notifyNearbyUsers = async (job: Job) => {
 // The Haversine formula works with distances in kilometers since it uses the Earth's radius in kilometers (6371 km);
 export async function findNearbyUsers(prisma: PrismaClient, longitude: number, latitude: number, radiusInKm: number) {
   const nearbyUsers = await prisma.$queryRaw<{ userId: string; latitude: number; longitude: number; distance: number; deviceType: string; deviceToken: string; notificationsEnabled: boolean; email: string; }[]>`
-  SELECT calculated_distances."userId", calculated_distances.longitude, calculated_distances.latitude, calculated_distances.distance, users."deviceType", users."deviceToken", users."notificationsEnabled", users."email"
-  FROM (
-    SELECT "userId", longitude, latitude,
-          (6371 * acos(
-              cos(radians(44.6126388)) 
-              * cos(radians(latitude)) 
-              * cos(radians(longitude) - radians(-63.6192829)) 
-              + sin(radians(44.6126388)) * sin(radians(latitude))
-          )) AS distance
-    FROM locations
-  ) AS calculated_distances
-  JOIN users
-  ON users.id = calculated_distances."userId" AND users.email IN ('test03@quickpeek.com', 'test02@quickpeek.com')
-  --WHERE distance <= 10
-  ORDER BY distance;
-`;
-
-  // `
-  //   SELECT calculated_distances."userId", calculated_distances.longitude, calculated_distances.latitude, calculated_distances.distance, users."deviceType", users."deviceToken", users."notificationsEnabled", users."email"
-  //   FROM (
-  //     SELECT "userId", longitude, latitude,
-  //           (6371 * acos(
-  //               cos(radians(${latitude})) 
-  //               * cos(radians(latitude)) 
-  //               * cos(radians(longitude) - radians(${longitude})) 
-  //               + sin(radians(${latitude})) * sin(radians(latitude))
-  //           )) AS distance
-  //     FROM locations
-  //   ) AS calculated_distances
-  //   JOIN users
-  //   ON users.id = calculated_distances."userId"
-  //   WHERE distance <= ${radiusInKm}
-  //   ORDER BY distance;
-  // `;
+    SELECT calculated_distances."userId", calculated_distances.longitude, calculated_distances.latitude, calculated_distances.distance, users."deviceType", users."deviceToken", users."notificationsEnabled", users."email"
+    FROM (
+      SELECT "userId", longitude, latitude,
+            (6371 * acos(
+                cos(radians(${latitude}))
+                * cos(radians(latitude))
+                * cos(radians(longitude) - radians(${longitude}))
+                + sin(radians(${latitude})) * sin(radians(latitude))
+            )) AS distance
+      FROM locations
+    ) AS calculated_distances
+    JOIN users
+    ON users.id = calculated_distances."userId"
+    WHERE distance <= ${radiusInKm}
+    ORDER BY distance;
+  `;
 
   return nearbyUsers;
 }

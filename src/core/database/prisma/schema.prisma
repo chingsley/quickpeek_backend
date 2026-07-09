@@ -24,6 +24,7 @@ model User {
   location                     Location?
   questions                    Question[]     @relation("CreatedQuestions")
   claimedQuestions             Question[]     @relation("ClaimedQuestions")
+  assignedQuestions            Question[]     @relation("AssignedQuestions")
   answers                      Answer[]
   userRating                   UserRating?
   transactions                 Transaction[]
@@ -45,10 +46,11 @@ model Location {
 }
 
 enum QuestionStatus {
-  OPEN
-  PENDING_ANSWER
-  ANSWERED
-  CANCELLED
+  OPEN          // question draft created, not yet assigned to a responder
+  ASSIGNED      // questioner has selected a responder; awaiting their answer within TTR
+  ANSWERED      // responder has submitted an answer
+  EXPIRED       // TTR elapsed with no answer; questioner may reassign
+  CANCELLED     // questioner cancelled
 }
 
 model Question {
@@ -61,12 +63,17 @@ model Question {
   status                  QuestionStatus  @default(OPEN)
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
-  claimedByUserId         String?        // ID of the user currently answering
-  claimedAt               DateTime?      // When the lock started
+  claimedByUserId         String?        // ID of the user currently answering (legacy claim field, kept for back-compat)
+  claimedAt               DateTime?      // When the lock started (legacy)
+  assignedResponderId     String?        // ID of the responder the questioner selected
+  assignedAt              DateTime?      // When the question was assigned to the responder
+  timeToRespondMs         Int?            // TTR window in milliseconds for this assignment
+  expiredAt               DateTime?      // When the question's TTR expired (set by timeout job)
 
   answers                 Answer[]
   user                    User            @relation("CreatedQuestions", fields: [userId], references: [id])
   claimedByUser           User?            @relation("ClaimedQuestions", fields: [claimedByUserId], references: [id])
+  assignedResponder       User?            @relation("AssignedQuestions", fields: [assignedResponderId], references: [id])
 
   @@map("questions")  // This will map the Question model to the "questions" table in SQL
 }
@@ -74,6 +81,7 @@ model Question {
 model Answer {
   id             String          @id @default(uuid())
   text           String
+  imageUrl       String?         // optional image attachment (S3/Cloudinary URL)
   questionId     String
   userId         String
   createdAt      DateTime        @default(now())

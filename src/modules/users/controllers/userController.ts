@@ -3,6 +3,10 @@ import { Prisma } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import config from '../../../core/config/default';
+import {
+  LOCATION_FRESHNESS_MINUTES,
+  LOCATION_ONLINE_MINUTES,
+} from '../../../common/constants/location.constants';
 import prisma from '../../../core/database/prisma/client';
 import { deviceUpdateQueue } from '../../../core/queues/deviceUpdateQueue';
 import { userLocationUpdateQueue } from '../../../core/queues/userLocationUpdateQueue';
@@ -241,6 +245,8 @@ export const getNearbyResponders = async (req: Request, res: Response) => {
     const lon = parseFloat(longitude as string);
     const radiusInKm = parseFloat(process.env.RADIUS_OF_CONCERN_IN_KM || '3');
     const limit = parseInt(process.env.NEARBY_RESPONDERS_LIMIT || '20', 10);
+    const freshnessMinutes = LOCATION_FRESHNESS_MINUTES;
+    const onlineMinutes = LOCATION_ONLINE_MINUTES;
 
     // Raw SQL: nearby users (excluding self) within radius, joined with their
     // rating summary and last-known location freshness.
@@ -278,7 +284,8 @@ export const getNearbyResponders = async (req: Request, res: Response) => {
       JOIN locations loc ON loc."userId" = u.id
       LEFT JOIN user_ratings ur ON ur."userId" = u.id
       WHERE u.id <> ${userId}
-        AND loc."updatedAt" > NOW() - INTERVAL '24 hours'
+        AND u."locationSharingEnabled" = true
+        AND loc."updatedAt" > NOW() - (${freshnessMinutes} * INTERVAL '1 minute')
         AND (6371 * acos(
             cos(radians(${lat}))
             * cos(radians(loc.latitude))
@@ -287,14 +294,15 @@ export const getNearbyResponders = async (req: Request, res: Response) => {
         )) <= ${radiusInKm}
     `;
 
-    // Consider a user "online/active" if their location was updated recently.
+    // Consider a user "online/active" if their location was updated very recently.
     const now = Date.now();
+    const onlineWindowMs = onlineMinutes * 60 * 1000;
     const responders: NearbyResponderRow[] = rows.map((r) => {
       const totalRating = r.totalRating ?? 0;
       const answersCount = r.answersCount ?? 0;
       const averageRating = answersCount > 0 ? totalRating / answersCount : 0;
       const locationUpdatedAtMs = r.locationUpdatedAt ? new Date(r.locationUpdatedAt).getTime() : 0;
-      const isOnline = now - locationUpdatedAtMs <= 5 * 60 * 1000; // last 5 min
+      const isOnline = now - locationUpdatedAtMs <= onlineWindowMs;
       return {
         userId: r.id,
         username: r.username,

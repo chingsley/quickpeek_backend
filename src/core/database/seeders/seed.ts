@@ -235,6 +235,9 @@ async function seed() {
     console.log(`  ${u?.name || userId}: ${agg.totalRating} total / ${agg.answersCount} answers = ${(agg.totalRating / agg.answersCount).toFixed(1)} avg`);
   }
 
+  console.log('\nRefreshing location timestamps for nearby-responder queries…');
+  await prisma.$executeRaw`UPDATE locations SET "updatedAt" = NOW()`;
+
   console.log('\n✅ Seed complete!');
   console.log(`   Login: ${test03.email} / password: password123`);
   console.log(`   ${test03.name} (${test03.username}) has:`);

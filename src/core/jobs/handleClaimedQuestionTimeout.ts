@@ -62,7 +62,7 @@ const handleClaimedQuestionTimeout = async (job: Job) => {
   await redisClient.del(`lock:question:${questionId}`);
 
   // 3. Notify the questioner that the responder didn't respond in time, with
-  //    enough context for the UI to offer a "Re-choose responder" action.
+  //    enough context for the UI to offer a "Choose another responder" action.
   emitToUser(question.userId, 'question:expired', {
     questionId,
     status: 'EXPIRED',
@@ -74,6 +74,12 @@ const handleClaimedQuestionTimeout = async (job: Job) => {
     latitude: question.latitude,
     longitude: question.longitude,
   });
+
+  if (assignedResponderId) {
+    emitToUser(assignedResponderId, 'question:assignment-expired', {
+      questionId,
+    });
+  }
 
   console.log(`Question ${questionId} TTR expired; questioner ${question.userId} notified.`);
 };

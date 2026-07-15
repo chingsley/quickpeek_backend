@@ -16,6 +16,7 @@ import {
   setCachedNearbyQuestions,
   invalidateNearbyQuestionsCache,
 } from '../../../common/utils/cache';
+import { expireAssignmentIfTtrElapsed } from '../../../common/utils/question-assignment.utils';
 
 // Default TTR window for an assigned question (configurable via env).
 const DEFAULT_TTR_MS = parseInt(process.env.QUESTION_TIME_TO_RESPOND_MS || `${10 * 60 * 1000}`, 10);
@@ -51,6 +52,7 @@ export const getUserPostedQuestions = async (req: Request, res: Response) => {
   try {
     const questions = await prisma.question.findMany({
       where: { userId: req.user?.userId },
+      orderBy: { createdAt: 'desc' },
       include: {
         answers: {
           select: {
@@ -78,7 +80,23 @@ export const getUserPostedQuestions = async (req: Request, res: Response) => {
       },
     });
 
-    const formattedQuestions = questions.map((question) => {
+    const resolvedQuestions = [];
+    for (const question of questions) {
+      const expired = await expireAssignmentIfTtrElapsed(question);
+      resolvedQuestions.push(
+        expired
+          ? {
+              ...question,
+              status: 'EXPIRED' as any,
+              expiredAt: new Date(),
+              assignedResponderId: null,
+              assignedAt: null,
+            }
+          : question,
+      );
+    }
+
+    const formattedQuestions = resolvedQuestions.map((question) => {
       return {
         id: question.id,
         text: question.text,
@@ -126,6 +144,7 @@ export const getAnsweredQuestions = async (req: Request, res: Response) => {
           },
         },
       },
+      orderBy: { updatedAt: 'desc' },
       include: {
         answers: {
           where: {
@@ -685,7 +704,15 @@ export const getAssignedQuestions = async (req: Request, res: Response) => {
       },
     });
 
-    const data = questions.map((q) => {
+    const activeQuestions = [];
+    for (const question of questions) {
+      const expired = await expireAssignmentIfTtrElapsed(question);
+      if (!expired) {
+        activeQuestions.push(question);
+      }
+    }
+
+    const data = activeQuestions.map((q) => {
       const firstAnswer = (q as any).answers?.[0];
       return {
         id: q.id,

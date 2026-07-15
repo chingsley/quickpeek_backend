@@ -6,7 +6,7 @@ import prisma from '../../../core/database/prisma/client';
 import { sendAnswerToquestionCreatorQueue } from '../../../core/queues/sendAnswerToQuestionCreatorQueue';
 import { notifyAssignedResponderQueue } from '../../../core/queues/notifyAssignedResponderQueue';
 import redisClient from '../../../core/config/redis';
-import { broadcastQuestionUpdate, io } from '../../../core/socket/socket.server';
+import { broadcastQuestionUpdate, emitToUser, io } from '../../../core/socket/socket.server';
 import { questionTimeoutQueue } from '../../../core/queues/questionTimeoutQueue';
 import { getUserRating, computeAverage } from '../../../common/utils/ratings';
 import { uploadAnswerImage } from '../../../core/config/cloudinary';
@@ -128,9 +128,13 @@ export const getAnsweredQuestions = async (req: Request, res: Response) => {
       },
       include: {
         answers: {
+          where: {
+            userId: req.user?.userId,
+          },
           select: {
             id: true,
             text: true,
+            imageUrl: true,
             user: {
               select: {
                 id: true,
@@ -173,6 +177,7 @@ export const getAnsweredQuestions = async (req: Request, res: Response) => {
           return {
             id: answer.id,
             text: answer.text,
+            imageUrl: answer.imageUrl,
             rating: answer.answerRating?.rating,
             responderUsername: answer.user.username,
             responderAverageRating,
@@ -272,6 +277,17 @@ export const createAnswerForQuestion = async (req: Request, res: Response) => {
       answerContent: answer.text,
       responderId: answer.userId,
     });
+
+    const answerUpdatePayload = {
+      questionId,
+      status: 'ANSWERED',
+      answer: answer.text,
+      answerId: answer.id,
+      imageUrl: answer.imageUrl ?? undefined,
+    };
+
+    emitToUser(userId, 'question:update', answerUpdatePayload);
+    emitToUser(question.userId, 'question:update', answerUpdatePayload);
 
     res.status(201).json({
       message: 'Answer created successfully',
@@ -651,7 +667,10 @@ export const getAssignedQuestions = async (req: Request, res: Response) => {
   try {
     const userId = req.user!.userId;
     const questions = await prisma.question.findMany({
-      where: { assignedResponderId: userId },
+      where: {
+        assignedResponderId: userId,
+        status: 'ASSIGNED' as any,
+      },
       orderBy: { assignedAt: 'desc' },
       include: {
         user: { select: { id: true, username: true } },

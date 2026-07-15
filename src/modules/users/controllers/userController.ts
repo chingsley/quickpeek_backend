@@ -18,6 +18,7 @@ import { getUserRating } from '../../../common/utils/ratings';
 
 
 const JWT_SECRET = config.jwtSecret!;
+const JWT_EXPIRES_IN = config.jwtExpiresIn!;
 const BCRYPT_SALT_ROUND = config.bcryptSaltRound!;
 
 export const registerUser = async (req: Request, res: Response) => {
@@ -83,7 +84,7 @@ export const loginUser = async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '1h' });
+    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
     await deviceUpdateQueue.add({
       userId: user.id,
       deviceType,

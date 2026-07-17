@@ -6,8 +6,10 @@ import {
   updateUserLocation,
   getUserProfile,
   updateUserProfile,
+  uploadUserProfileImage,
   getNearbyResponders,
 } from '../controllers/userController';
+import { answerImageUpload } from '../../../api/middlewares/uploadMiddleware';
 import {
   validateUserRegistration,
   validateUserLogin,
@@ -26,6 +28,7 @@ router.post('/location', authenticateToken, validateUserLocation, updateUserLoca
 // Profile (authenticated user)
 router.get('/', authenticateToken, getUserProfile);
 router.put('/', authenticateToken, validateUserProfileUpdate, updateUserProfile);
+router.post('/profile-image', authenticateToken, answerImageUpload, uploadUserProfileImage);
 
 // Browse responders (responder-selection flow)
 router.get('/nearby', authenticateToken, validateNearbyRespondersQuery, getNearbyResponders);

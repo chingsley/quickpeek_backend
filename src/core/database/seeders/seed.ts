@@ -58,11 +58,13 @@ const OUTBOX_QUESTIONS = [
 ];
 
 const INBOX_QUESTIONS = [
-  { text: 'Is there a lineup at the bank inside the mall?',              fromIdx: 0 },
-  { text: 'What time does the community centre close tonight?',          fromIdx: 1 },
-  { text: 'Does the grocery store have fresh strawberries right now?',   fromIdx: 5 },
-  { text: 'Is the gym at Spryfield busy right now?',                     fromIdx: 4 },
-  { text: 'Are there any events at the library this weekend?',           fromIdx: 7 },
+  { text: 'Is there a lineup at the bank inside the mall?',               fromIdx: 0, status: 'ANSWERED' as const, answerIdx: 7 },
+  { text: 'What time does the community centre close tonight?',           fromIdx: 1, status: 'ANSWERED' as const, answerIdx: 8 },
+  { text: 'Does the grocery store have fresh strawberries right now?',    fromIdx: 5, status: 'ANSWERED' as const, answerIdx: 9 },
+  { text: 'Is the gym at Spryfield busy right now?',                      fromIdx: 4, status: 'ANSWERED' as const, answerIdx: 10 },
+  { text: 'Are there any events at the library this weekend?',            fromIdx: 7, status: 'ANSWERED' as const, answerIdx: 11 },
+  { text: 'Is the Sobeys on Herring Cove Rd restocked on milk today?',    fromIdx: 2, status: 'ASSIGNED' as const },
+  { text: 'How busy is the parking lot at the Spryfield Mall right now?', fromIdx: 6, status: 'ASSIGNED' as const },
 ];
 
 const ANSWER_TEXTS = [
@@ -173,20 +175,33 @@ async function seed() {
   console.log('\nCreating inbox questions for test03 (assigned by other users)…');
   for (const qdef of INBOX_QUESTIONS) {
     const fromUser = users[qdef.fromIdx];
-    await prisma.question.create({
+    const question = await prisma.question.create({
       data: {
         userId: fromUser.id,
         text: qdef.text,
         longitude: centralLongitude + (Math.random() - 0.5) * 0.005,
         latitude: centralLatitude + (Math.random() - 0.5) * 0.005,
         address: ADDRESSES[Math.floor(Math.random() * ADDRESSES.length)],
-        status: 'ASSIGNED',
+        status: qdef.status,
         assignedResponderId: test03.id,
-        assignedAt: new Date(Date.now() - 5 * 60 * 1000),
+        assignedAt: qdef.status === 'ASSIGNED'
+          ? new Date()
+          : new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
         timeToRespondMs: 600000,
       },
     });
-    console.log(`  "${qdef.text}" from ${fromUser.name}`);
+
+    if (qdef.status === 'ANSWERED' && qdef.answerIdx !== undefined) {
+      await prisma.answer.create({
+        data: {
+          questionId: question.id,
+          userId: test03.id,
+          text: ANSWER_TEXTS[qdef.answerIdx % ANSWER_TEXTS.length],
+        },
+      });
+    }
+
+    console.log(`  "${qdef.text}" from ${fromUser.name} (${qdef.status})`);
   }
 
   console.log('\nCreating ratings for answered questions…');

@@ -15,6 +15,7 @@ import {
   PRISMA_UNIQUE_CONSTRAINT_VIOLATION_CODE
 } from './../../../common/constants/index';
 import { getUserRating } from '../../../common/utils/ratings';
+import { uploadProfileImage } from '../../../core/config/cloudinary';
 
 
 const JWT_SECRET = config.jwtSecret!;
@@ -171,7 +172,7 @@ export const getUserProfile = async (req: Request, res: Response) => {
 export const updateUserProfile = async (req: Request, res: Response) => {
   try {
     const userId = req.user!.userId;
-    const { name, username, notificationsEnabled, locationSharingEnabled, deviceToken } = req.body;
+    const { name, username, notificationsEnabled, locationSharingEnabled, deviceToken, profileImageUrl } = req.body;
 
     const updated = await prisma.user.update({
       where: { id: userId },
@@ -181,6 +182,7 @@ export const updateUserProfile = async (req: Request, res: Response) => {
         ...(notificationsEnabled !== undefined ? { notificationsEnabled } : {}),
         ...(locationSharingEnabled !== undefined ? { locationSharingEnabled } : {}),
         ...(deviceToken !== undefined ? { deviceToken } : {}),
+        ...(profileImageUrl !== undefined ? { profileImageUrl } : {}),
       },
       include: {
         location: { select: { latitude: true, longitude: true } },
@@ -213,6 +215,55 @@ export const updateUserProfile = async (req: Request, res: Response) => {
     }
     console.error('updateUserProfile error:', error);
     return res.status(500).json({ error: 'Failed to update user profile' });
+  }
+};
+
+/**
+ * POST /api/v1/users/profile-image
+ * Uploads a profile image via multipart form field `image`.
+ */
+export const uploadUserProfileImage = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.userId;
+    const file = (req as any).file as Express.Multer.File | undefined;
+
+    if (!file) {
+      return res.status(400).json({ error: 'No image file provided' });
+    }
+
+    let profileImageUrl: string;
+    try {
+      profileImageUrl = await uploadProfileImage(file.buffer);
+    } catch (uploadErr: any) {
+      console.error('Profile image upload failed:', uploadErr);
+      return res.status(400).json({ error: uploadErr?.message || 'Image upload failed' });
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: { profileImageUrl },
+      include: {
+        location: { select: { latitude: true, longitude: true } },
+      },
+    });
+
+    const rating = await getUserRating(userId);
+    const { password, ...safeUser } = updated;
+
+    return res.status(200).json({
+      message: 'Profile image updated successfully',
+      data: {
+        ...safeUser,
+        rating: {
+          averageRating: rating.averageRating,
+          totalRating: rating.totalRating,
+          answersCount: rating.answersCount,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('uploadUserProfileImage error:', error);
+    return res.status(500).json({ error: 'Failed to upload profile image' });
   }
 };
 

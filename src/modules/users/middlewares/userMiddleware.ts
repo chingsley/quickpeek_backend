@@ -68,7 +68,7 @@ export const validateUserProfileUpdate = (req: Request, res: Response, next: Nex
     username: Joi.string().lowercase().min(3).max(30).optional(),
     notificationsEnabled: Joi.boolean().optional(),
     locationSharingEnabled: Joi.boolean().optional(),
-    deviceToken: Joi.string().trim().allow('').optional(),
+    profileImageUrl: Joi.string().uri().allow('', null).optional(),
   }).min(1); // at least one field must be provided
 
   const { error, value } = schema.validate(req.body);

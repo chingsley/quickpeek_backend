@@ -54,6 +54,14 @@ export const getUserPostedQuestions = async (req: Request, res: Response) => {
       where: { userId: req.user?.userId },
       orderBy: { createdAt: 'desc' },
       include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            profileImageUrl: true,
+          },
+        },
         answers: {
           select: {
             id: true,
@@ -104,6 +112,9 @@ export const getUserPostedQuestions = async (req: Request, res: Response) => {
         latitude: question.latitude,
         address: question.address,
         userId: question.userId,
+        questionerName: question.user?.name ?? question.user?.username,
+        questionerUsername: question.user?.username,
+        questionerProfileImageUrl: question.user?.profileImageUrl ?? null,
         status: question.status,
         createdAt: question.createdAt,
         updatedAt: question.updatedAt,
@@ -146,6 +157,14 @@ export const getAnsweredQuestions = async (req: Request, res: Response) => {
       },
       orderBy: { updatedAt: 'desc' },
       include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            profileImageUrl: true,
+          },
+        },
         answers: {
           where: {
             userId: req.user?.userId,
@@ -184,6 +203,9 @@ export const getAnsweredQuestions = async (req: Request, res: Response) => {
         latitude: question.latitude,
         address: question.address,
         userId: question.userId,
+        questionerName: question.user?.name ?? question.user?.username,
+        questionerUsername: question.user?.username,
+        questionerProfileImageUrl: question.user?.profileImageUrl ?? null,
         status: question.status,
         createdAt: question.createdAt,
         updatedAt: question.updatedAt,
@@ -692,7 +714,7 @@ export const getAssignedQuestions = async (req: Request, res: Response) => {
       },
       orderBy: { assignedAt: 'desc' },
       include: {
-        user: { select: { id: true, username: true } },
+        user: { select: { id: true, name: true, username: true, profileImageUrl: true } },
         answers: {
           select: {
             id: true,
@@ -721,7 +743,9 @@ export const getAssignedQuestions = async (req: Request, res: Response) => {
         latitude: q.latitude,
         address: q.address,
         userId: q.userId,
+        questionerName: (q as any).user?.name ?? (q as any).user?.username,
         questionerUsername: (q as any).user?.username,
+        questionerProfileImageUrl: (q as any).user?.profileImageUrl ?? null,
         status: q.status,
         createdAt: q.createdAt,
         updatedAt: q.updatedAt,

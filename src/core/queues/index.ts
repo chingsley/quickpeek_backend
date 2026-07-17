@@ -8,6 +8,7 @@ import { userRatingsUpdateQueue } from './userRatingsUpdateQueue';
 import { questionTimeoutQueue } from './questionTimeoutQueue';
 import { notifyAssignedResponderQueue } from './notifyAssignedResponderQueue';
 import { questionCleanupQueue } from './questionCleanupQueue';
+import { reviewRevealQueue } from './reviewRevealQueue';
 
 import {
   processDeviceUpdate,
@@ -18,6 +19,7 @@ import {
   handleClaimedQuestionTimeout,
   notifyAssignedResponder,
   cleanupQuestions,
+  processReviewReveal,
 } from '../jobs';
 
 deviceUpdateQueue.process(processDeviceUpdate);
@@ -28,18 +30,26 @@ userRatingsUpdateQueue.process(processUserRatings);
 questionTimeoutQueue.process(handleClaimedQuestionTimeout);
 notifyAssignedResponderQueue.process(notifyAssignedResponder);
 questionCleanupQueue.process(cleanupQuestions);
+reviewRevealQueue.process(processReviewReveal);
 
-// Schedule the cleanup job to run daily. `repeat` is idempotent for the same
-// key + repeat options, so re-importing this module (e.g. in tests) will not
-// create duplicate schedules.
 questionCleanupQueue.add(
   'cleanup',
   {},
   {
-    repeat: { cron: '0 3 * * *' }, // daily at 03:00
+    repeat: { cron: '0 3 * * *' },
     jobId: 'question-cleanup-daily',
   },
 ).catch((err) => {
-  // Bull logs repeat-key conflicts as errors when the job already exists.
   console.warn('questionCleanupQueue schedule:', err?.message || err);
+});
+
+reviewRevealQueue.add(
+  'reveal-stale-reviews',
+  {},
+  {
+    repeat: { cron: '0 4 * * *' },
+    jobId: 'review-reveal-daily',
+  },
+).catch((err) => {
+  console.warn('reviewRevealQueue schedule:', err?.message || err);
 });

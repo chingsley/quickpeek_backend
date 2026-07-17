@@ -17,6 +17,7 @@ import {
   invalidateNearbyQuestionsCache,
 } from '../../../common/utils/cache';
 import { expireAssignmentIfTtrElapsed } from '../../../common/utils/question-assignment.utils';
+import { createInitialQuestionerMessages } from '../../../common/utils/messages.utils';
 
 // Default TTR window for an assigned question (configurable via env).
 const DEFAULT_TTR_MS = parseInt(process.env.QUESTION_TIME_TO_RESPOND_MS || `${10 * 60 * 1000}`, 10);
@@ -54,6 +55,14 @@ export const getUserPostedQuestions = async (req: Request, res: Response) => {
       where: { userId: req.user?.userId },
       orderBy: { createdAt: 'desc' },
       include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            profileImageUrl: true,
+          },
+        },
         answers: {
           select: {
             id: true,
@@ -62,18 +71,48 @@ export const getUserPostedQuestions = async (req: Request, res: Response) => {
               select: {
                 id: true,
                 username: true,
-                userRating: {
-                  select: {
-                    totalRating: true,
-                    answersCount: true,
-                  },
+                userRatings: {
+                  where: { role: 'AS_RESPONDER' },
+                  select: { totalStars: true, reviewsCount: true },
                 },
               },
             },
-            answerRating: {
+          },
+        },
+        reviews: {
+          select: {
+            id: true,
+            stars: true,
+            comment: true,
+            raterRole: true,
+            isRevealed: true,
+            rateeId: true,
+          },
+        },
+        messages: {
+          orderBy: { createdAt: 'asc' },
+          select: {
+            text: true,
+            senderId: true,
+            sender: {
               select: {
-                rating: true,
+                id: true,
+                name: true,
+                username: true,
+                profileImageUrl: true,
               },
+            },
+          },
+        },
+        assignedResponder: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            profileImageUrl: true,
+            userRatings: {
+              where: { role: 'AS_RESPONDER' },
+              select: { totalStars: true, reviewsCount: true },
             },
           },
         },
@@ -89,14 +128,46 @@ export const getUserPostedQuestions = async (req: Request, res: Response) => {
               ...question,
               status: 'EXPIRED' as any,
               expiredAt: new Date(),
-              assignedResponderId: null,
-              assignedAt: null,
             }
           : question,
       );
     }
 
+    const responderIdsMissingRelation = new Set<string>();
+    for (const question of resolvedQuestions) {
+      if (question.assignedResponderId && !question.assignedResponder) {
+        responderIdsMissingRelation.add(question.assignedResponderId);
+      }
+    }
+
+    const extraResponders =
+      responderIdsMissingRelation.size > 0
+        ? await prisma.user.findMany({
+            where: { id: { in: [...responderIdsMissingRelation] } },
+            select: {
+              id: true,
+              name: true,
+              username: true,
+              profileImageUrl: true,
+            },
+          })
+        : [];
+    const extraResponderMap = new Map(extraResponders.map((user) => [user.id, user]));
+
     const formattedQuestions = resolvedQuestions.map((question) => {
+      const messages = (question as any).messages ?? [];
+      const responderFromMessages = messages.find(
+        (message: any) => message.senderId !== question.userId,
+      )?.sender;
+      const responder =
+        question.assignedResponder ??
+        (question.assignedResponderId
+          ? extraResponderMap.get(question.assignedResponderId)
+          : null) ??
+        responderFromMessages ??
+        null;
+      const lastMessage = messages[messages.length - 1]?.text ?? null;
+
       return {
         id: question.id,
         text: question.text,
@@ -104,24 +175,35 @@ export const getUserPostedQuestions = async (req: Request, res: Response) => {
         latitude: question.latitude,
         address: question.address,
         userId: question.userId,
+        questionerName: question.user?.name ?? question.user?.username,
+        questionerUsername: question.user?.username,
+        questionerProfileImageUrl: question.user?.profileImageUrl ?? null,
+        assignedResponderId: question.assignedResponderId ?? responder?.id ?? null,
+        assignedResponderName: responder?.name ?? null,
+        assignedResponderUsername: responder?.username ?? null,
+        assignedResponderProfileImageUrl: responder?.profileImageUrl ?? null,
         status: question.status,
         createdAt: question.createdAt,
         updatedAt: question.updatedAt,
         answers: question.answers.map((answer) => {
-          const userRating = answer.user.userRating;
+          const userRating = answer.user.userRatings?.[0];
           const responderAverageRating = computeAverage(
-            userRating?.totalRating ?? 0,
-            userRating?.answersCount ?? 0,
+            userRating?.totalStars ?? 0,
+            userRating?.reviewsCount ?? 0,
           );
           return {
             id: answer.id,
             text: answer.text,
-            rating: answer.answerRating?.rating,
+            rating: undefined,
             responderUsername: answer.user.username,
             responderAverageRating,
             responderID: answer.user.id,
           };
         }),
+        lastMessage,
+        questionReview: (question as any).reviews?.find(
+          (review: any) => review.raterRole === 'QUESTIONER' && review.isRevealed,
+        ) ?? null,
       };
     });
 
@@ -136,19 +218,36 @@ export const getUserPostedQuestions = async (req: Request, res: Response) => {
 
 export const getAnsweredQuestions = async (req: Request, res: Response) => {
   try {
+    const userId = req.user!.userId;
     const questions = await prisma.question.findMany({
       where: {
-        answers: {
-          some: {
-            userId: req.user?.userId,
+        OR: [
+          {
+            answers: {
+              some: {
+                userId,
+              },
+            },
           },
-        },
+          {
+            assignedResponderId: userId,
+            status: 'ANSWERED' as any,
+          },
+        ],
       },
       orderBy: { updatedAt: 'desc' },
       include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            profileImageUrl: true,
+          },
+        },
         answers: {
           where: {
-            userId: req.user?.userId,
+            userId,
           },
           select: {
             id: true,
@@ -158,20 +257,27 @@ export const getAnsweredQuestions = async (req: Request, res: Response) => {
               select: {
                 id: true,
                 username: true,
-                userRating: {
-                  select: {
-                    totalRating: true,
-                    answersCount: true,
-                  },
+                userRatings: {
+                  where: { role: 'AS_RESPONDER' },
+                  select: { totalStars: true, reviewsCount: true },
                 },
               },
             },
-            answerRating: {
-              select: {
-                rating: true,
-              },
-            },
           },
+        },
+        reviews: {
+          select: {
+            id: true,
+            stars: true,
+            comment: true,
+            raterRole: true,
+            isRevealed: true,
+          },
+        },
+        messages: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { text: true },
         },
       },
     });
@@ -184,25 +290,29 @@ export const getAnsweredQuestions = async (req: Request, res: Response) => {
         latitude: question.latitude,
         address: question.address,
         userId: question.userId,
+        questionerName: question.user?.name ?? question.user?.username,
+        questionerUsername: question.user?.username,
+        questionerProfileImageUrl: question.user?.profileImageUrl ?? null,
         status: question.status,
         createdAt: question.createdAt,
         updatedAt: question.updatedAt,
         answers: question.answers.map((answer) => {
-          const userRating = answer.user.userRating;
+          const userRating = answer.user.userRatings?.[0];
           const responderAverageRating = computeAverage(
-            userRating?.totalRating ?? 0,
-            userRating?.answersCount ?? 0,
+            userRating?.totalStars ?? 0,
+            userRating?.reviewsCount ?? 0,
           );
           return {
             id: answer.id,
             text: answer.text,
             imageUrl: answer.imageUrl,
-            rating: answer.answerRating?.rating,
+            rating: undefined,
             responderUsername: answer.user.username,
             responderAverageRating,
             responderID: answer.user.id,
           };
         }),
+        lastMessage: (question as any).messages?.[0]?.text ?? null,
       };
     });
 
@@ -499,11 +609,9 @@ async function assignQuestionToResponder(opts: {
   questionId: string;
   questionerId: string;
   responderId: string;
-  timeToRespondMs?: number;
   reassigning: boolean;
-}): Promise<{ question: any; timeToRespondMs: number }> {
+}): Promise<{ question: any }> {
   const { questionId, questionerId, responderId, reassigning } = opts;
-  const timeToRespondMs = opts.timeToRespondMs ?? DEFAULT_TTR_MS;
 
   const question = await prisma.question.findUnique({ where: { id: questionId } });
   if (!question) {
@@ -560,14 +668,6 @@ async function assignQuestionToResponder(opts: {
     );
   }
 
-  // Acquire the TTR Redis lock. The lock auto-expires as a safety net; the
-  // timeout job is the authoritative expiry mechanism.
-  const lockKey = `lock:question:${questionId}`;
-  const acquired = await redisClient.set(lockKey, responderId, 'PX', timeToRespondMs, 'NX');
-  if (!acquired) {
-    throw new ControllerError(409, 'Question is already locked by an in-progress assignment');
-  }
-
   const now = new Date();
   const updatedQuestion = await prisma.question.update({
     where: { id: questionId },
@@ -575,28 +675,27 @@ async function assignQuestionToResponder(opts: {
       status: 'ASSIGNED' as any,
       assignedResponderId: responderId,
       assignedAt: now,
-      timeToRespondMs,
+      timeToRespondMs: null,
+      respondByAt: null,
       expiredAt: null,
-      // Sync legacy claim fields so any old code still sees a consistent state.
       claimedByUserId: responderId,
       claimedAt: now,
     },
-  }).catch(async (err) => {
-    // Roll back the lock if the DB write failed.
-    await redisClient.del(lockKey);
-    throw err;
   });
 
-  // Schedule the TTR timeout job.
-  await questionTimeoutQueue.add(
-    { questionId, assignedResponderId: responderId },
-    { delay: timeToRespondMs },
-  );
-
-  // Enqueue a single targeted notification to the chosen responder.
   await notifyAssignedResponderQueue.add({ questionId, assignedResponderId: responderId });
 
-  return { question: updatedQuestion, timeToRespondMs };
+  if (!reassigning) {
+    await createInitialQuestionerMessages({
+      questionId,
+      questionerId,
+      address: question.address,
+      bodyText: question.text,
+      assignedResponderId: responderId,
+    });
+  }
+
+  return { question: updatedQuestion };
 }
 
 class ControllerError extends Error {
@@ -625,18 +724,16 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): nu
 export const assignQuestion = async (req: Request, res: Response) => {
   try {
     const { questionId } = req.params;
-    const { responderId, timeToRespondMs } = req.body;
+    const { responderId } = req.body;
     const result = await assignQuestionToResponder({
       questionId,
       questionerId: req.user!.userId,
       responderId,
-      timeToRespondMs,
       reassigning: false,
     });
     return res.status(200).json({
       message: 'Question assigned successfully',
       data: result.question,
-      timeToRespondMs: result.timeToRespondMs,
     });
   } catch (error: any) {
     if (error instanceof ControllerError) {
@@ -655,18 +752,16 @@ export const assignQuestion = async (req: Request, res: Response) => {
 export const reassignQuestion = async (req: Request, res: Response) => {
   try {
     const { questionId } = req.params;
-    const { responderId, timeToRespondMs } = req.body;
+    const { responderId } = req.body;
     const result = await assignQuestionToResponder({
       questionId,
       questionerId: req.user!.userId,
       responderId,
-      timeToRespondMs,
       reassigning: true,
     });
     return res.status(200).json({
       message: 'Question reassigned successfully',
       data: result.question,
-      timeToRespondMs: result.timeToRespondMs,
     });
   } catch (error: any) {
     if (error instanceof ControllerError) {
@@ -688,32 +783,43 @@ export const getAssignedQuestions = async (req: Request, res: Response) => {
     const questions = await prisma.question.findMany({
       where: {
         assignedResponderId: userId,
-        status: 'ASSIGNED' as any,
+        status: { in: ['ASSIGNED', 'EXPIRED'] as any },
       },
       orderBy: { assignedAt: 'desc' },
       include: {
-        user: { select: { id: true, username: true } },
+        user: { select: { id: true, name: true, username: true, profileImageUrl: true } },
         answers: {
           select: {
             id: true,
             text: true,
-            answerRating: { select: { rating: true } },
           },
           take: 1,
+        },
+        messages: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { text: true },
         },
       },
     });
 
     const activeQuestions = [];
     for (const question of questions) {
-      const expired = await expireAssignmentIfTtrElapsed(question);
-      if (!expired) {
+      if ((question.status as string) === 'ASSIGNED') {
+        const expired = await expireAssignmentIfTtrElapsed(question);
+        activeQuestions.push(
+          expired
+            ? { ...question, status: 'EXPIRED' as any, expiredAt: new Date() }
+            : question,
+        );
+      } else {
         activeQuestions.push(question);
       }
     }
 
     const data = activeQuestions.map((q) => {
       const firstAnswer = (q as any).answers?.[0];
+      const lastMessage = (q as any).messages?.[0];
       return {
         id: q.id,
         text: q.text,
@@ -721,16 +827,19 @@ export const getAssignedQuestions = async (req: Request, res: Response) => {
         latitude: q.latitude,
         address: q.address,
         userId: q.userId,
+        questionerName: (q as any).user?.name ?? (q as any).user?.username,
         questionerUsername: (q as any).user?.username,
+        questionerProfileImageUrl: (q as any).user?.profileImageUrl ?? null,
         status: q.status,
         createdAt: q.createdAt,
         updatedAt: q.updatedAt,
         assignedResponderId: q.assignedResponderId,
         assignedAt: q.assignedAt,
         timeToRespondMs: q.timeToRespondMs,
+        respondByAt: q.respondByAt,
         expiredAt: q.expiredAt,
-        answer: firstAnswer?.text ?? undefined,
-        answerRating: firstAnswer?.answerRating?.rating ?? undefined,
+        answeredAt: q.answeredAt,
+        answer: lastMessage?.text ?? firstAnswer?.text ?? undefined,
         answerId: firstAnswer?.id ?? undefined,
       };
     });

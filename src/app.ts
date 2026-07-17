@@ -6,9 +6,12 @@ import cors from 'cors';
 import questionRoutes from './modules/questions/routes/questionRoutes';
 import healthRoutes from './api/routes/healthRoute';
 import userRoutes from './modules/users/routes/userRoutes';
-import ratingsRoutes from './modules/ratings/routes/ratingsRoutes';
 
 const app = express();
+
+// Required when requests arrive via a proxy (e.g. Expo tunnel) so
+// express-rate-limit can safely read X-Forwarded-For.
+app.set('trust proxy', 1);
 
 app.use(express.json());
 app.use(cors());
@@ -17,7 +20,6 @@ app.use(loggingMiddleware);
 app.use('/api/v1/health', healthRoutes);
 app.use('/api/v1/questions', questionRoutes);
 app.use('/api/v1/users', userRoutes);
-app.use('/api/v1/ratings', ratingsRoutes);
 app.use((error: Error, req: Request, res: Response, next: NextFunction) => {
   if (error) {
     if (typeof error === 'object') {

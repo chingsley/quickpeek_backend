@@ -13,12 +13,20 @@ export default cloudinary;
  * Returns the secure URL. Throws if Cloudinary creds are not configured.
  */
 export async function uploadAnswerImage(buffer: Buffer): Promise<string> {
+  return uploadImage(buffer, 'quickpeek/answers');
+}
+
+export async function uploadProfileImage(buffer: Buffer): Promise<string> {
+  return uploadImage(buffer, 'quickpeek/profiles');
+}
+
+function uploadImage(buffer: Buffer, folder: string): Promise<string> {
   if (!process.env.CLOUDINARY_CLOUD_NAME) {
     throw new Error('Cloudinary is not configured (CLOUDINARY_CLOUD_NAME missing)');
   }
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
-      { folder: 'quickpeek/answers', resource_type: 'image' },
+      { folder, resource_type: 'image' },
       (error, result) => {
         if (error || !result) return reject(error || new Error('Cloudinary upload failed'));
         resolve(result.secure_url);

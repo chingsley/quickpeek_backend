@@ -18,6 +18,7 @@ model User {
   notificationsEnabled         Boolean
   locationSharingEnabled       Boolean
   isVerified                   Boolean
+  profileImageUrl              String?
   createdAt                    DateTime       @default(now())
   updatedAt                    DateTime       @updatedAt
 
@@ -26,10 +27,13 @@ model User {
   claimedQuestions             Question[]     @relation("ClaimedQuestions")
   assignedQuestions            Question[]     @relation("AssignedQuestions")
   answers                      Answer[]
-  userRating                   UserRating?
+  messages                     Message[]
+  reviewsGiven                 Review[]       @relation("ReviewsGiven")
+  reviewsReceived              Review[]       @relation("ReviewsReceived")
+  userRatings                  UserRating[]
   transactions                 Transaction[]
 
-  @@map("users")  // This will map the User model to the "users" table in SQL
+  @@map("users")
 }
 
 model Location {
@@ -42,46 +46,102 @@ model Location {
 
   user                User      @relation(fields: [userId], references: [id])
 
-  @@map("locations")  // This will map the Location model to the "locations" table in SQL
+  @@map("locations")
 }
 
 enum QuestionStatus {
-  OPEN          // question draft created, not yet assigned to a responder
-  ASSIGNED      // questioner has selected a responder; awaiting their answer within TTR
-  ANSWERED      // responder has submitted an answer
-  EXPIRED       // TTR elapsed with no answer; questioner may reassign
-  CANCELLED     // questioner cancelled
+  OPEN
+  ASSIGNED
+  ANSWERED
+  EXPIRED
+  CANCELLED
+}
+
+enum ReviewerRole {
+  QUESTIONER
+  RESPONDER
+}
+
+enum RatingRole {
+  AS_RESPONDER
+  AS_QUESTIONER
+}
+
+enum MessageType {
+  USER
+  SYSTEM
 }
 
 model Question {
-  id                      String   @id @default(uuid())
+  id                      String           @id @default(uuid())
   text                    String
-  longitude               Float  // longitude coordinates of the place the user is asking about, e.g: longitude: 69.70293022853721
-  latitude                Float  // latitude coordinates of the place the user is asking about, e.g: latitude: -111.4263007731484
-  address                 String  // address of the place the user is asking about, e.g: '7174 Morris Street, Halifax'
+  longitude               Float
+  latitude                Float
+  address                 String
   userId                  String
-  status                  QuestionStatus  @default(OPEN)
-  createdAt               DateTime  @default(now())
-  updatedAt               DateTime  @updatedAt
-  claimedByUserId         String?        // ID of the user currently answering (legacy claim field, kept for back-compat)
-  claimedAt               DateTime?      // When the lock started (legacy)
-  assignedResponderId     String?        // ID of the responder the questioner selected
-  assignedAt              DateTime?      // When the question was assigned to the responder
-  timeToRespondMs         Int?            // TTR window in milliseconds for this assignment
-  expiredAt               DateTime?      // When the question's TTR expired (set by timeout job)
+  status                  QuestionStatus   @default(OPEN)
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
+  answeredAt              DateTime?
+  claimedByUserId         String?
+  claimedAt               DateTime?
+  assignedResponderId     String?
+  assignedAt              DateTime?
+  timeToRespondMs         Int?
+  respondByAt             DateTime?
+  expiredAt               DateTime?
 
   answers                 Answer[]
-  user                    User            @relation("CreatedQuestions", fields: [userId], references: [id])
+  messages                Message[]
+  reviews                 Review[]
+  user                    User             @relation("CreatedQuestions", fields: [userId], references: [id])
   claimedByUser           User?            @relation("ClaimedQuestions", fields: [claimedByUserId], references: [id])
   assignedResponder       User?            @relation("AssignedQuestions", fields: [assignedResponderId], references: [id])
 
-  @@map("questions")  // This will map the Question model to the "questions" table in SQL
+  @@map("questions")
+}
+
+model Message {
+  id          String      @id @default(uuid())
+  questionId  String
+  senderId    String
+  text        String
+  type        MessageType @default(USER)
+  createdAt   DateTime    @default(now())
+  readAt      DateTime?
+
+  question    Question  @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  sender      User      @relation(fields: [senderId], references: [id])
+
+  @@index([questionId])
+  @@map("messages")
+}
+
+model Review {
+  id          String        @id @default(uuid())
+  questionId  String
+  raterId     String
+  rateeId     String
+  raterRole   ReviewerRole
+  stars       Int
+  comment     String?
+  isRevealed  Boolean       @default(false)
+  createdAt   DateTime      @default(now())
+  revealedAt  DateTime?
+
+  question    Question      @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  rater       User          @relation("ReviewsGiven", fields: [raterId], references: [id])
+  ratee       User          @relation("ReviewsReceived", fields: [rateeId], references: [id])
+
+  @@unique([questionId, raterId])
+  @@index([rateeId, isRevealed])
+  @@map("reviews")
 }
 
 model Answer {
   id             String          @id @default(uuid())
   text           String
-  imageUrl       String?         // optional image attachment (S3/Cloudinary URL)
+  imageUrl       String?
   questionId     String
   userId         String
   createdAt      DateTime        @default(now())
@@ -89,9 +149,8 @@ model Answer {
 
   question       Question        @relation(fields: [questionId], references: [id])
   user           User            @relation(fields: [userId], references: [id])
-  answerRating   AnswerRating?
 
-  @@map("answers")  // This will map the Answer model to the "answers" table in SQL
+  @@map("answers")
 }
 
 model Transaction {
@@ -102,33 +161,20 @@ model Transaction {
   updatedAt  DateTime      @updatedAt
   user       User          @relation(fields: [userId], references: [id])
 
-  @@map("transactions")  // This will map the Transaction model to the "transactions" table in SQL
+  @@map("transactions")
 }
-
-// questionCreator rates a responder's answer to a question
-model AnswerRating {
-  id                    String      @id @default(uuid())
-  answerId              String      @unique
-  rating                Int         // min 0, max 5
-  feedback              String?     // optional field
-  createdAt             DateTime    @default(now())
-  updatedAt             DateTime    @updatedAt
-
-  answer                Answer      @relation(fields: [answerId],  references: [id])   // Optional relation
-
-  @@map("answer_ratings")  // This will map the AnswerRating model to the "answer_ratings" table in SQL
-}
-
 
 model UserRating {
-  id                    String      @id @default(uuid())
-  userId                String      @unique      
-  totalRating           Int         // min 0, max 5
-  answersCount          Int
-  createdAt             DateTime    @default(now())
-  updatedAt             DateTime    @updatedAt
+  id           String      @id @default(uuid())
+  userId       String
+  role         RatingRole
+  totalStars   Int
+  reviewsCount Int
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
 
-  user                  User       @relation(fields: [userId], references: [id])
+  user         User        @relation(fields: [userId], references: [id])
 
-  @@map("user_ratings")  // This will map the UserRating model to the "user_ratings" table in SQL
+  @@unique([userId, role])
+  @@map("user_ratings")
 }

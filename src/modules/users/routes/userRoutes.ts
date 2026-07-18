@@ -8,6 +8,7 @@ import {
   updateUserProfile,
   uploadUserProfileImage,
   getNearbyResponders,
+  getPublicUserProfile,
 } from '../controllers/userController';
 import { answerImageUpload } from '../../../api/middlewares/uploadMiddleware';
 import {
@@ -32,5 +33,6 @@ router.post('/profile-image', authenticateToken, answerImageUpload, uploadUserPr
 
 // Browse responders (responder-selection flow)
 router.get('/nearby', authenticateToken, validateNearbyRespondersQuery, getNearbyResponders);
+router.get('/:id/profile', authenticateToken, getPublicUserProfile);
 
 export default router;

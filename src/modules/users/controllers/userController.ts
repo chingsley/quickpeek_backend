@@ -1,5 +1,5 @@
+import { RatingRole, Prisma } from '@prisma/client';
 import { Request, Response } from 'express';
-import { Prisma } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import config from '../../../core/config/default';
@@ -14,7 +14,7 @@ import {
   errCodeConstants,
   PRISMA_UNIQUE_CONSTRAINT_VIOLATION_CODE
 } from './../../../common/constants/index';
-import { getUserRating } from '../../../common/utils/ratings';
+import { getUserRating, getUserRatingByRole } from '../../../common/utils/ratings';
 import { uploadProfileImage } from '../../../core/config/cloudinary';
 
 
@@ -205,7 +205,7 @@ export const updateUserProfile = async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     if (error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === PRISMA_UNIQUE_CONSTRAINT_VIOLATION_CODE) {
+      error.code === PRISMA_UNIQUE_CONSTRAINT_VIOLATION_CODE) {
       const uniqueField = error.meta?.target as string[];
       let errorMessage = 'Unique constraint violation';
       if (uniqueField && uniqueField.includes('username')) {
@@ -271,6 +271,7 @@ export type NearbyResponderRow = {
   userId: string;
   username: string;
   name: string;
+  profileImageUrl: string | null;
   distance: number;
   averageRating: number;
   totalRating: number;
@@ -307,6 +308,7 @@ export const getNearbyResponders = async (req: Request, res: Response) => {
         id: string;
         username: string;
         name: string;
+        profileImageUrl: string | null;
         latitude: number;
         longitude: number;
         distance: number;
@@ -320,6 +322,7 @@ export const getNearbyResponders = async (req: Request, res: Response) => {
         u.id,
         u.username,
         u.name,
+        u."profileImageUrl",
         loc.latitude,
         loc.longitude,
         (6371 * acos(
@@ -328,13 +331,13 @@ export const getNearbyResponders = async (req: Request, res: Response) => {
             * cos(radians(loc.longitude) - radians(${lon}))
             + sin(radians(${lat})) * sin(radians(loc.latitude))
         )) AS distance,
-        COALESCE(ur."totalRating", 0) AS "totalRating",
-        COALESCE(ur."answersCount", 0) AS "answersCount",
+        COALESCE(ur."totalStars", 0) AS "totalRating",
+        COALESCE(ur."reviewsCount", 0) AS "answersCount",
         u."notificationsEnabled",
         loc."updatedAt" AS "locationUpdatedAt"
       FROM users u
       JOIN locations loc ON loc."userId" = u.id
-      LEFT JOIN user_ratings ur ON ur."userId" = u.id
+      LEFT JOIN user_ratings ur ON ur."userId" = u.id AND ur.role = 'AS_RESPONDER'
       WHERE u.id <> ${userId}
         AND u."locationSharingEnabled" = true
         AND loc."updatedAt" > NOW() - (${freshnessMinutes} * INTERVAL '1 minute')
@@ -359,6 +362,7 @@ export const getNearbyResponders = async (req: Request, res: Response) => {
         userId: r.id,
         username: r.username,
         name: r.name,
+        profileImageUrl: r.profileImageUrl ?? null,
         distance: Number(r.distance),
         averageRating,
         totalRating,
@@ -382,5 +386,98 @@ export const getNearbyResponders = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('getNearbyResponders error:', error);
     return res.status(500).json({ error: 'Failed to fetch nearby responders' });
+  }
+};
+
+/**
+ * GET /api/v1/users/:id/profile
+ * Public profile with role-scoped ratings, activity counts, and revealed reviews.
+ */
+export const getPublicUserProfile = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const page = Math.max(parseInt(String(req.query.page || '1'), 10), 1);
+    const limit = Math.min(Math.max(parseInt(String(req.query.limit || '10'), 10), 1), 50);
+    const skip = (page - 1) * limit;
+
+    const user = await prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        profileImageUrl: true,
+        createdAt: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const [asResponder, asQuestioner, answersCount, questionsAskedCount, reviews, reviewsTotal] =
+      await Promise.all([
+        getUserRatingByRole(id, RatingRole.AS_RESPONDER),
+        getUserRatingByRole(id, RatingRole.AS_QUESTIONER),
+        prisma.question.count({
+          where: {
+            assignedResponderId: id,
+            status: 'ANSWERED',
+          },
+        }),
+        prisma.question.count({ where: { userId: id } }),
+        prisma.review.findMany({
+          where: { rateeId: id, isRevealed: true },
+          orderBy: { revealedAt: 'desc' },
+          skip,
+          take: limit,
+          include: {
+            rater: {
+              select: { id: true, name: true, username: true, profileImageUrl: true },
+            },
+          },
+        }),
+        prisma.review.count({ where: { rateeId: id, isRevealed: true } }),
+      ]);
+
+    return res.status(200).json({
+      message: 'Successful',
+      data: {
+        ...user,
+        asResponder: {
+          averageRating: asResponder.averageRating,
+          reviewsCount: asResponder.reviewsCount,
+        },
+        asQuestioner: {
+          averageRating: asQuestioner.averageRating,
+          reviewsCount: asQuestioner.reviewsCount,
+        },
+        answersCount,
+        questionsAskedCount,
+        reviews: reviews.map((review) => ({
+          id: review.id,
+          stars: review.stars,
+          comment: review.comment,
+          raterRole: review.raterRole,
+          createdAt: review.createdAt.toISOString(),
+          revealedAt: review.revealedAt?.toISOString() ?? null,
+          rater: {
+            id: review.rater.id,
+            name: review.rater.name,
+            username: review.rater.username,
+            profileImageUrl: review.rater.profileImageUrl,
+          },
+        })),
+        reviewsPagination: {
+          page,
+          limit,
+          total: reviewsTotal,
+          hasMore: skip + reviews.length < reviewsTotal,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('getPublicUserProfile error:', error);
+    return res.status(500).json({ error: 'Failed to fetch user profile' });
   }
 };

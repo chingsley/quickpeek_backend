@@ -1,35 +1,35 @@
 import { Job } from 'bull';
+import { RatingRole } from '@prisma/client';
 import prisma from '../database/prisma/client';
 import redisClient from '../config/redis';
 
 const processUserRating = async (job: Job) => {
-  // console.log('\n....... execution job.....\n', job.data);
   try {
-    const { userId, rating } = job.data;
+    const { userId, rating, role = RatingRole.AS_RESPONDER } = job.data;
 
     await prisma.$executeRaw`BEGIN TRANSACTION`;
-    let totalRating: number = rating;
-    let answersCount: number = 1;
-    const currentRating = await prisma.userRating.findUnique({ where: { userId } });
+    let totalStars: number = rating;
+    let reviewsCount: number = 1;
+    const currentRating = await prisma.userRating.findUnique({
+      where: { userId_role: { userId, role } },
+    });
     if (currentRating) {
-      totalRating = currentRating.totalRating + rating;
-      answersCount = currentRating.answersCount + 1;
+      totalStars = currentRating.totalStars + rating;
+      reviewsCount = currentRating.reviewsCount + 1;
       await prisma.userRating.update({
-        where: { userId },
-        data: { totalRating, answersCount }
+        where: { userId_role: { userId, role } },
+        data: { totalStars, reviewsCount },
       });
     } else {
-      // create first rating for user: totalRatings = ratings, answersCount = 1
       await prisma.userRating.create({
-        data: { userId, totalRating, answersCount }
+        data: { userId, role, totalStars, reviewsCount },
       });
     }
     await prisma.$executeRaw`COMMIT TRANSACTION`;
 
-    // Update the cache
-    const cacheKey = `userRating:${userId}`;
-    await redisClient.set(cacheKey, JSON.stringify({ totalRating, answersCount }), 'EX', 60 * 60);
-    console.log(`Updated rating for user ${userId}`);
+    const cacheKey = `userRating:${userId}:${role}`;
+    await redisClient.set(cacheKey, JSON.stringify({ totalStars, reviewsCount }), 'EX', 60 * 60);
+    console.log(`Updated rating for user ${userId} (${role})`);
   } catch (error) {
     await prisma.$executeRaw`ROLLBACK TRANSACTION`;
     console.error('Failed to update user rating', error);

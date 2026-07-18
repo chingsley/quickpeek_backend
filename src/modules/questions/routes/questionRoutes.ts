@@ -9,6 +9,8 @@ import {
   reassignQuestion,
   getAssignedQuestions,
 } from './../controllers/questionController';
+import messageRoutes from '../../messages/routes/messageRoutes';
+import reviewRoutes from '../../reviews/routes/reviewRoutes';
 import {
   validateQuestionCreation, validateAnswerCreation,
   validateGetNearbyQuestionsPayload,
@@ -53,13 +55,14 @@ router.post('/', authenticateToken, questionCreationLimiter, validateQuestionCre
 router.get('/', authenticateToken, getUserPostedQuestions);
 router.get('/answered', authenticateToken, getAnsweredQuestions);
 router.get('/assigned', authenticateToken, getAssignedQuestions); // Responder inbox
+router.get('/pending', authenticateToken, getPendingQuestions);
 router.get('/nearby', authenticateToken, nearbyReadLimiter, validateGetNearbyQuestionsPayload, getNearbyQuestions);
 router.post('/:questionId/assign', authenticateToken, questionCreationLimiter, validateAssignQuestion, assignQuestion);
 router.post('/:questionId/reassign', authenticateToken, questionCreationLimiter, validateReassignQuestion, reassignQuestion);
 router.post('/:questionId/claim', authenticateToken, claimQuestion); // legacy race-to-claim (deprecated)
 router.post('/:questionId/answer', authenticateToken, answerSubmissionLimiter, answerSubmission, createAnswerForQuestion);
 router.get('/:questionId/answers', authenticateToken, getAnswersByQuestionId);
-
-router.get('/pending', authenticateToken, getPendingQuestions);
+router.use('/:questionId/messages', messageRoutes);
+router.use('/:questionId', reviewRoutes);
 
 export default router;

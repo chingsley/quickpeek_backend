@@ -1,108 +1,123 @@
-import { MessageType, QuestionStatus } from '@prisma/client';
+import { AnswerRequestStatus, MessageType } from '@prisma/client';
 import { Request, Response } from 'express';
 import prisma from '../../../core/database/prisma/client';
 import { emitToUser } from '../../../core/socket/socket.server';
-import { cancelTtrOnFirstResponderMessage } from '../../../common/utils/ttr.utils';
-import { sendNotification } from '../../../core/messaging/firebase.push';
+import { formatMessagePayload } from '../../../common/utils/messages.utils';
 
-const formatMessage = (message: {
-  id: string;
-  questionId: string;
-  senderId: string;
-  text: string;
-  type: MessageType;
-  createdAt: Date;
-  readAt: Date | null;
-}) => ({
-  id: message.id,
-  questionId: message.questionId,
-  senderId: message.senderId,
-  text: message.text,
-  type: message.type,
-  createdAt: message.createdAt.toISOString(),
-  readAt: message.readAt?.toISOString() ?? null,
-});
+type AuthedRequest = Request & { user?: { userId: string } };
 
-const getRecipientId = (
-  question: { userId: string; assignedResponderId: string | null },
-  senderId: string,
-): string | null => {
-  if (senderId === question.userId) {
-    return question.assignedResponderId;
+const REQUEST_PARTICIPANTS_SELECT = {
+  id: true,
+  questionId: true,
+  responderId: true,
+  questionerId: true,
+  status: true,
+  question: {
+    select: {
+      id: true,
+      title: true,
+      detail: true,
+      userId: true,
+      status: true,
+      latitude: true,
+      longitude: true,
+      address: true,
+      category: { select: { id: true, name: true, slug: true } },
+    },
+  },
+} as const;
+
+const getRequest = async (requestId: string) =>
+  prisma.answerRequest.findUnique({
+    where: { id: requestId },
+    select: REQUEST_PARTICIPANTS_SELECT,
+  });
+
+type RequestRow = Awaited<ReturnType<typeof getRequest>>;
+
+const assertParticipant = (
+  request: RequestRow,
+  userId: string,
+): { ok: true } | { ok: false; status: number; error: string } => {
+  if (!request) {
+    return { ok: false, status: 404, error: 'Request not found' };
   }
-  if (senderId === question.assignedResponderId) {
-    return question.userId;
+  if (request.responderId !== userId && request.questionerId !== userId) {
+    return { ok: false, status: 403, error: 'Not a participant in this conversation' };
   }
-  return null;
+  return { ok: true };
 };
 
-const assertParticipant = async (questionId: string, userId: string) => {
-  const question = await prisma.question.findUnique({ where: { id: questionId } });
-  if (!question) {
-    return { error: { status: 404, message: 'Question not found' } };
-  }
+const counterpartyIdOf = (request: NonNullable<RequestRow>, userId: string) =>
+  userId === request.questionerId ? request.responderId : request.questionerId;
 
-  const isParticipant =
-    question.userId === userId || question.assignedResponderId === userId;
-
-  if (!isParticipant) {
-    return { error: { status: 403, message: 'Not a participant in this conversation' } };
-  }
-
-  return { question };
-};
-
-export const sendMessage = async (req: Request, res: Response) => {
+/**
+ * GET /requests/:id/messages
+ * Returns messages visible to the caller (null visibleToUserId = both, or matches caller).
+ */
+export const getMessages = async (req: AuthedRequest, res: Response) => {
   try {
-    const { questionId } = req.params;
+    const { id: requestId } = req.params;
+    const userId = req.user!.userId;
+
+    const request = await getRequest(requestId);
+    const guard = assertParticipant(request, userId);
+    if (!guard.ok) {
+      return res.status(guard.status).json({ error: guard.error });
+    }
+
+    const messages = await prisma.message.findMany({
+      where: {
+        answerRequestId: requestId,
+        OR: [{ visibleToUserId: null }, { visibleToUserId: userId }],
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return res.status(200).json({
+      message: 'Successful',
+      data: messages.map(formatMessagePayload),
+    });
+  } catch (error) {
+    console.error('getMessages error:', error);
+    return res.status(500).json({ error: 'Failed to fetch messages' });
+  }
+};
+
+/**
+ * POST /requests/:id/messages
+ * Allowed only when the request is ACCEPTED. Blocked for PENDING/REJECTED/CLOSED_ANSWERED.
+ */
+export const sendMessage = async (req: AuthedRequest, res: Response) => {
+  try {
+    const { id: requestId } = req.params;
     const userId = req.user!.userId;
     const { text } = req.body;
 
-    const result = await assertParticipant(questionId, userId);
-    if (result.error) {
-      return res.status(result.error.status).json({ error: result.error.message });
+    const request = await getRequest(requestId);
+    const guard = assertParticipant(request, userId);
+    if (!guard.ok) {
+      return res.status(guard.status).json({ error: guard.error });
     }
 
-    const question = result.question!;
-
-    if (question.status === QuestionStatus.EXPIRED) {
-      return res.status(409).json({ error: 'This conversation has expired' });
-    }
-
-    const recipientId = getRecipientId(question, userId);
-
-    if (!recipientId) {
-      return res.status(409).json({ error: 'No assigned responder for this question' });
+    if (request!.status !== AnswerRequestStatus.ACCEPTED) {
+      return res.status(409).json({
+        error: `Conversation is locked while request is ${request!.status}`,
+      });
     }
 
     const message = await prisma.message.create({
       data: {
-        questionId,
+        questionId: request!.questionId,
+        answerRequestId: requestId,
         senderId: userId,
         text: text.trim(),
       },
     });
 
-    await cancelTtrOnFirstResponderMessage(
-      questionId,
-      userId,
-      question.assignedResponderId,
-    );
-
-    const payload = formatMessage(message);
+    const payload = formatMessagePayload(message);
+    const recipientId = counterpartyIdOf(request!, userId);
     emitToUser(recipientId, 'message:new', payload);
-
-    const recipient = await prisma.user.findUnique({
-      where: { id: recipientId },
-      select: { deviceToken: true, notificationsEnabled: true },
-    });
-
-    if (recipient?.notificationsEnabled && recipient.deviceToken) {
-      await sendNotification(recipient.deviceToken, {
-        body: text.trim().slice(0, 120),
-        data: { questionId, type: 'message:new' },
-      }).catch((err) => console.error('Message push failed:', err));
-    }
 
     return res.status(201).json({ message: 'Message sent', data: payload });
   } catch (error) {
@@ -111,49 +126,29 @@ export const sendMessage = async (req: Request, res: Response) => {
   }
 };
 
-export const getMessages = async (req: Request, res: Response) => {
+/**
+ * POST /requests/:id/messages/read
+ * Marks the caller's unread, non-system, non-self messages as read.
+ */
+export const markMessagesRead = async (req: AuthedRequest, res: Response) => {
   try {
-    const { questionId } = req.params;
+    const { id: requestId } = req.params;
     const userId = req.user!.userId;
 
-    const result = await assertParticipant(questionId, userId);
-    if (result.error) {
-      return res.status(result.error.status).json({ error: result.error.message });
+    const request = await getRequest(requestId);
+    const guard = assertParticipant(request, userId);
+    if (!guard.ok) {
+      return res.status(guard.status).json({ error: guard.error });
     }
 
-    const messages = await prisma.message.findMany({
-      where: { questionId },
-      orderBy: { createdAt: 'asc' },
-    });
-
-    return res.status(200).json({
-      message: 'Successful',
-      data: messages.map(formatMessage),
-    });
-  } catch (error) {
-    console.error('getMessages error:', error);
-    return res.status(500).json({ error: 'Failed to fetch messages' });
-  }
-};
-
-export const markMessagesRead = async (req: Request, res: Response) => {
-  try {
-    const { questionId } = req.params;
-    const userId = req.user!.userId;
-
-    const result = await assertParticipant(questionId, userId);
-    if (result.error) {
-      return res.status(result.error.status).json({ error: result.error.message });
-    }
-
-    const now = new Date();
     await prisma.message.updateMany({
       where: {
-        questionId,
+        answerRequestId: requestId,
         senderId: { not: userId },
         readAt: null,
+        OR: [{ visibleToUserId: null }, { visibleToUserId: userId }],
       },
-      data: { readAt: now },
+      data: { readAt: new Date() },
     });
 
     return res.status(200).json({ message: 'Messages marked as read' });
@@ -163,74 +158,59 @@ export const markMessagesRead = async (req: Request, res: Response) => {
   }
 };
 
-export const getQuestionThread = async (req: Request, res: Response) => {
+/**
+ * GET /requests/:id/thread
+ * Chat context: question summary + counterparty + status + canType flag.
+ */
+export const getRequestThread = async (req: AuthedRequest, res: Response) => {
   try {
-    const { questionId } = req.params;
+    const { id: requestId } = req.params;
     const userId = req.user!.userId;
 
-    const question = await prisma.question.findUnique({
-      where: { id: questionId },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            username: true,
-            profileImageUrl: true,
-          },
-        },
-        assignedResponder: {
-          select: {
-            id: true,
-            name: true,
-            username: true,
-            profileImageUrl: true,
-          },
-        },
+    const request = await getRequest(requestId);
+    const guard = assertParticipant(request, userId);
+    if (!guard.ok) {
+      return res.status(guard.status).json({ error: guard.error });
+    }
+
+    const counterpartyId = counterpartyIdOf(request!, userId);
+    const counterparty = await prisma.user.findUnique({
+      where: { id: counterpartyId },
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        profileImageUrl: true,
       },
     });
 
-    if (!question) {
-      return res.status(404).json({ error: 'Question not found' });
-    }
-
-    const isParticipant =
-      question.userId === userId || question.assignedResponderId === userId;
-
-    if (!isParticipant) {
-      return res.status(403).json({ error: 'Not a participant in this conversation' });
-    }
-
-    const counterparty =
-      userId === question.userId ? question.assignedResponder : question.user;
-
+    const q = request!.question;
     return res.status(200).json({
       message: 'Successful',
       data: {
-        id: question.id,
-        text: question.text,
-        address: question.address,
-        latitude: question.latitude,
-        longitude: question.longitude,
-        status: question.status,
-        userId: question.userId,
-        assignedResponderId: question.assignedResponderId,
-        answeredAt: question.answeredAt?.toISOString() ?? null,
-        timeToRespondMs: question.timeToRespondMs,
-        respondByAt: question.respondByAt?.toISOString() ?? null,
-        createdAt: question.createdAt.toISOString(),
-        counterparty: counterparty
-          ? {
-              id: counterparty.id,
-              name: counterparty.name,
-              username: counterparty.username,
-              profileImageUrl: counterparty.profileImageUrl,
-            }
-          : null,
+        id: request!.id,
+        status: request!.status,
+        canType: request!.status === AnswerRequestStatus.ACCEPTED,
+        questionerId: request!.questionerId,
+        responderId: request!.responderId,
+        question: {
+          id: q.id,
+          title: q.title,
+          detail: q.detail,
+          status: q.status,
+          latitude: q.latitude,
+          longitude: q.longitude,
+          address: q.address,
+          category: q.category,
+        },
+        counterparty,
       },
     });
   } catch (error) {
-    console.error('getQuestionThread error:', error);
-    return res.status(500).json({ error: 'Failed to fetch question thread' });
+    console.error('getRequestThread error:', error);
+    return res.status(500).json({ error: 'Failed to fetch request thread' });
   }
 };
+
+// Re-export MessageType to satisfy type-only imports in callers.
+export type { MessageType };

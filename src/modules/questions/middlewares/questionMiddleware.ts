@@ -1,129 +1,63 @@
 import { Request, Response, NextFunction } from 'express';
 import Joi from 'joi';
+import prisma from '../../../core/database/prisma/client';
 
-export const validateQuestionCreation = (req: Request, res: Response, next: NextFunction) => {
+const LATITUDE = Joi.number().min(-90).max(90).precision(14);
+const LONGITUDE = Joi.number().min(-180).max(180).precision(14);
+
+/**
+ * Validates the new marketplace question payload.
+ * Location fields are optional; if `latitude`/`longitude` are present,
+ * `address` is required so the question can be displayed on the feed map.
+ */
+export const validateQuestionCreation = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
   const schema = Joi.object({
-    text: Joi.string()
-      .min(3)
-      .max(100)
-      .required()
-      .messages({
-        "string.empty": "Question text is required",
-        "string.min": "Question must be at least 3 characters",
-      }),
-
-    address: Joi.string()
-      .min(3)
-      .required()
-      .messages({
-        "string.empty": "Address is required",
-      }),
-
-    longitude: Joi.number()
-      .min(-180)
-      .max(180)
-      .precision(14)
-      .required()
-      .messages({
-        "number.base": "Longitude must be a number",
-        "number.min": "Longitude must be >= -180",
-        "number.max": "Longitude must be <= 180",
-      }),
-
-    latitude: Joi.number()
-      .min(-90)
-      .max(90)
-      .precision(14)
-      .required()
-      .messages({
-        "number.base": "Latitude must be a number",
-        "number.min": "Latitude must be >= -90",
-        "number.max": "Latitude must be <= 90",
-      }),
+    title: Joi.string().trim().min(5).max(120).required(),
+    detail: Joi.string().trim().min(10).max(2000).required(),
+    categoryId: Joi.string().required(),
+    price: Joi.number().min(0).max(10000).required(),
+    acceptanceCriteria: Joi.string().trim().min(5).max(1000).required(),
+    latitude: LATITUDE.optional().allow(null),
+    longitude: LONGITUDE.optional().allow(null),
+    address: Joi.string().trim().max(300).optional().allow(null, ''),
+    answerRadiusKm: Joi.number().min(0.1).max(500).optional().allow(null),
   });
 
-  const { error } = schema.validate(req.body, { abortEarly: false });
-
+  const { error, value } = schema.validate(req.body, { abortEarly: false, stripUnknown: true });
   if (error) {
     return res.status(400).json({
       error: error.details[0].message,
-      details: error.details.map(d => d.message),
+      details: error.details.map((d) => d.message),
     });
   }
 
-  next();
-};
+  // Location must be supplied as a complete set or omitted entirely.
+  const hasAnyLocationField =
+    value.latitude !== undefined ||
+    value.longitude !== undefined ||
+    value.address !== undefined;
+  if (
+    hasAnyLocationField &&
+    (value.latitude == null || value.longitude == null || !value.address)
+  ) {
+    return res.status(400).json({
+      error:
+        'When location is provided, latitude, longitude and address are all required',
+    });
+  }
 
-export const validateAnswerCreation = (req: Request, res: Response, next: NextFunction) => {
-  const schema = Joi.object({
-    // questionId: Joi.string().required(),
-    text: Joi.string().required(),
+  // Category must exist.
+  const category = await prisma.category.findUnique({
+    where: { id: value.categoryId },
+    select: { id: true },
   });
-
-  const { error } = schema.validate(req.body);
-  if (error) return res.status(400).json({ error: error.details[0].message });
-
-  next();
-};
-
-export const validateGetNearbyQuestionsPayload = (req: Request, res: Response, next: NextFunction) => {
-  const schema = Joi.object({
-    longitude: Joi.number()
-      .min(-180)
-      .max(180)
-      .precision(14)
-      .required()
-      .messages({
-        "number.base": "Longitude must be a number",
-        "number.min": "Longitude must be >= -180",
-        "number.max": "Longitude must be <= 180",
-      }),
-
-    latitude: Joi.number()
-      .min(-90)
-      .max(90)
-      .precision(14)
-      .required()
-      .messages({
-        "number.base": "Latitude must be a number",
-        "number.min": "Latitude must be >= -90",
-        "number.max": "Latitude must be <= 90",
-      }),
-  });
-
-  const { error } = schema.validate(req.query);
-  if (error) return res.status(400).json({ error: error.details[0].message });
-
-  next();
-};
-
-export const validateAssignQuestion = (req: Request, res: Response, next: NextFunction) => {
-  const schema = Joi.object({
-    responderId: Joi.string().required().messages({
-      'string.empty': 'responderId is required',
-    }),
-    // Optional override of the default TTR window (ms). Defaults are applied
-    // in the controller from QUESTION_TIME_TO_RESPOND_MS.
-    timeToRespondMs: Joi.number().integer().min(30 * 1000).max(24 * 60 * 60 * 1000).optional(),
-  });
-
-  const { error, value } = schema.validate(req.body);
-  if (error) return res.status(400).json({ error: error.details[0].message });
-
-  req.body = value;
-  next();
-};
-
-export const validateReassignQuestion = (req: Request, res: Response, next: NextFunction) => {
-  const schema = Joi.object({
-    responderId: Joi.string().required().messages({
-      'string.empty': 'responderId is required',
-    }),
-    timeToRespondMs: Joi.number().integer().min(30 * 1000).max(24 * 60 * 60 * 1000).optional(),
-  });
-
-  const { error, value } = schema.validate(req.body);
-  if (error) return res.status(400).json({ error: error.details[0].message });
+  if (!category) {
+    return res.status(400).json({ error: 'Unknown category' });
+  }
 
   req.body = value;
   next();

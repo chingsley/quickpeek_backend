@@ -1,4 +1,4 @@
-import { RatingRole } from '@prisma/client';
+import { RatingRole, ReviewerRole } from '@prisma/client';
 import prisma from '../../core/database/prisma/client';
 import redisClient from '../../core/config/redis';
 
@@ -83,14 +83,16 @@ export async function recomputeUserRatingAggregate(
   userId: string,
   role: RatingRole,
 ): Promise<void> {
-  const ratingRoleForRatee =
-    role === RatingRole.AS_RESPONDER ? 'RESPONDER' : 'QUESTIONER';
+  // The ratee's role determines who the rater was. A user rated AS_RESPONDER
+  // was rated BY a QUESTIONER, and vice-versa.
+  const raterRole =
+    role === RatingRole.AS_RESPONDER ? ReviewerRole.QUESTIONER : ReviewerRole.RESPONDER;
 
   const aggregate = await prisma.review.aggregate({
     where: {
       rateeId: userId,
       isRevealed: true,
-      raterRole: ratingRoleForRatee as any,
+      raterRole,
     },
     _sum: { stars: true },
     _count: { id: true },

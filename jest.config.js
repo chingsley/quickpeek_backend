@@ -1,20 +1,27 @@
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
-  transform: {
-    '^.+\\.ts?$': 'ts-jest',
-  },
-  moduleFileExtensions: ['ts', 'js'],
-  transformIgnorePatterns: ['node_modules'],
-  // Exclude the dist folder
-  testPathIgnorePatterns: ['/node_modules/', '/dist/'],
-  // Use ts-jest to handle TypeScript files
+  moduleFileExtensions: ['ts', 'js', 'json', 'node'],
   transform: {
     '^.+\\.ts$': 'ts-jest',
   },
-  moduleFileExtensions: ['ts', 'js', 'json', 'node'],
-  // Use ESModules support
+  transformIgnorePatterns: ['node_modules'],
+  testPathIgnorePatterns: ['/node_modules/', '/dist/'],
   extensionsToTreatAsEsm: ['.ts'],
   setupFiles: ['dotenv/config'],
-  // setupFilesAfterEnv: ['<rootDir>/.env.test'],
+  collectCoverageFrom: [
+    'src/modules/**/*.ts',
+    'src/common/utils/**/*.ts',
+    '!src/**/*.d.ts',
+    '!src/**/routes/**',
+  ],
+  coverageDirectory: 'coverage',
+  coverageThreshold: {
+    global: {
+      statements: 80,
+      branches: 75,
+      functions: 80,
+      lines: 80,
+    },
+  },
 };

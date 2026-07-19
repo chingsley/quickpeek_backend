@@ -1,35 +1,58 @@
+import { AnswerRequestStatus, QuestionStatus, ReviewerRole } from '@prisma/client';
 import { Request, Response } from 'express';
-import { QuestionStatus, ReviewerRole } from '@prisma/client';
 import prisma from '../../../core/database/prisma/client';
-import { emitToUser } from '../../../core/socket/socket.server';
 import {
   getReviewUnlockReason,
   isReviewUnlocked,
   tryRevealMutualReviews,
 } from '../../../common/utils/reviews.utils';
 
-export const getReviewEligibility = async (req: Request, res: Response) => {
+type AuthedRequest = Request & { user?: { userId: string } };
+
+const getRequestWithQuestion = async (requestId: string) =>
+  prisma.answerRequest.findUnique({
+    where: { id: requestId },
+    include: {
+      question: { select: { id: true, status: true, userId: true } },
+    },
+  });
+
+type RequestWithQuestion = Awaited<ReturnType<typeof getRequestWithQuestion>>;
+
+const assertReviewParticipant = (
+  request: RequestWithQuestion,
+  userId: string,
+): { ok: true } | { ok: false; status: number; error: string } => {
+  if (!request) {
+    return { ok: false, status: 404, error: 'Request not found' };
+  }
+  if (request.responderId !== userId && request.questionerId !== userId) {
+    return { ok: false, status: 403, error: 'Not a participant in this request' };
+  }
+  return { ok: true };
+};
+
+/**
+ * GET /requests/:id/review-eligibility
+ * Eligibility to review a request: must be a participant, request must be
+ * ACCEPTED, and the question must be ANSWERED (or activity threshold met).
+ */
+export const getReviewEligibility = async (req: AuthedRequest, res: Response) => {
   try {
-    const { questionId } = req.params;
+    const { id: requestId } = req.params;
     const userId = req.user!.userId;
 
-    const question = await prisma.question.findUnique({ where: { id: questionId } });
-    if (!question) {
-      return res.status(404).json({ error: 'Question not found' });
+    const request = await getRequestWithQuestion(requestId);
+    const guard = assertReviewParticipant(request, userId);
+    if (!guard.ok) {
+      return res.status(guard.status).json({ error: guard.error });
     }
 
-    const isQuestioner = question.userId === userId;
-    const isResponder = question.assignedResponderId === userId;
-
-    if (!isQuestioner && !isResponder) {
-      return res.status(403).json({ error: 'Not a participant in this conversation' });
-    }
-
-    const unlockedReason = await getReviewUnlockReason(question);
+    const unlockedReason = await getReviewUnlockReason(request!);
     const unlocked = unlockedReason !== null;
 
     const existingReview = await prisma.review.findUnique({
-      where: { questionId_raterId: { questionId, raterId: userId } },
+      where: { answerRequestId_raterId: { answerRequestId: requestId, raterId: userId } },
     });
 
     return res.status(200).json({
@@ -49,37 +72,35 @@ export const getReviewEligibility = async (req: Request, res: Response) => {
   }
 };
 
-export const submitReview = async (req: Request, res: Response) => {
+/**
+ * POST /requests/:id/reviews
+ * Submit (or update) a review for this request. Double-blind: revealed only
+ * once both parties have submitted.
+ */
+export const submitReview = async (req: AuthedRequest, res: Response) => {
   try {
-    const { questionId } = req.params;
+    const { id: requestId } = req.params;
     const userId = req.user!.userId;
     const { stars, comment } = req.body;
 
-    const question = await prisma.question.findUnique({ where: { id: questionId } });
-    if (!question) {
-      return res.status(404).json({ error: 'Question not found' });
+    const request = await getRequestWithQuestion(requestId);
+    const guard = assertReviewParticipant(request, userId);
+    if (!guard.ok) {
+      return res.status(guard.status).json({ error: guard.error });
     }
 
-    const isQuestioner = question.userId === userId;
-    const isResponder = question.assignedResponderId === userId;
-
-    if (!isQuestioner && !isResponder) {
-      return res.status(403).json({ error: 'Not a participant in this conversation' });
+    if (!(await isReviewUnlocked(request!))) {
+      return res.status(409).json({ error: 'Reviews are not unlocked for this request yet' });
     }
 
-    if (!(await isReviewUnlocked(question))) {
-      return res.status(409).json({ error: 'Reviews are not unlocked for this question yet' });
-    }
-
+    const isQuestioner = request!.questionerId === userId;
     const raterRole = isQuestioner ? ReviewerRole.QUESTIONER : ReviewerRole.RESPONDER;
-    const rateeId = isQuestioner
-      ? question.assignedResponderId!
-      : question.userId;
+    const rateeId = isQuestioner ? request!.responderId : request!.questionerId;
 
     const review = await prisma.review.upsert({
-      where: { questionId_raterId: { questionId, raterId: userId } },
+      where: { answerRequestId_raterId: { answerRequestId: requestId, raterId: userId } },
       create: {
-        questionId,
+        answerRequestId: requestId,
         raterId: userId,
         rateeId,
         raterRole,
@@ -93,7 +114,7 @@ export const submitReview = async (req: Request, res: Response) => {
       },
     });
 
-    const revealed = await tryRevealMutualReviews(questionId);
+    const revealed = await tryRevealMutualReviews(requestId);
 
     return res.status(201).json({
       message: revealed ? 'Review submitted and revealed' : 'Review submitted',
@@ -111,65 +132,17 @@ export const submitReview = async (req: Request, res: Response) => {
   }
 };
 
-export const markQuestionAnswered = async (req: Request, res: Response) => {
+/**
+ * GET /requests/:id/my-review
+ * Returns the caller's own review for this request (if any).
+ */
+export const getMyReviewForRequest = async (req: AuthedRequest, res: Response) => {
   try {
-    const { questionId } = req.params;
-    const userId = req.user!.userId;
-
-    const question = await prisma.question.findUnique({ where: { id: questionId } });
-    if (!question) {
-      return res.status(404).json({ error: 'Question not found' });
-    }
-
-    if (question.userId !== userId) {
-      return res.status(403).json({ error: 'Only the questioner can mark this question as answered' });
-    }
-
-    if (question.status === QuestionStatus.EXPIRED) {
-      return res.status(409).json({ error: 'Cannot mark an expired question as answered' });
-    }
-
-    if (question.status === QuestionStatus.ANSWERED) {
-      return res.status(200).json({ message: 'Question already marked as answered', data: question });
-    }
-
-    const now = new Date();
-    const updated = await prisma.question.update({
-      where: { id: questionId },
-      data: {
-        status: QuestionStatus.ANSWERED,
-        answeredAt: now,
-      },
-    });
-
-    const payload = {
-      questionId,
-      status: QuestionStatus.ANSWERED,
-      answeredAt: now.toISOString(),
-    };
-
-    if (question.assignedResponderId) {
-      emitToUser(question.assignedResponderId, 'question:update', payload);
-    }
-    emitToUser(question.userId, 'question:update', payload);
-
-    return res.status(200).json({
-      message: 'Question marked as answered',
-      data: updated,
-    });
-  } catch (error) {
-    console.error('markQuestionAnswered error:', error);
-    return res.status(500).json({ error: 'Failed to mark question as answered' });
-  }
-};
-
-export const getMyReviewForQuestion = async (req: Request, res: Response) => {
-  try {
-    const { questionId } = req.params;
+    const { id: requestId } = req.params;
     const userId = req.user!.userId;
 
     const review = await prisma.review.findUnique({
-      where: { questionId_raterId: { questionId, raterId: userId } },
+      where: { answerRequestId_raterId: { answerRequestId: requestId, raterId: userId } },
     });
 
     return res.status(200).json({
@@ -185,7 +158,9 @@ export const getMyReviewForQuestion = async (req: Request, res: Response) => {
         : null,
     });
   } catch (error) {
-    console.error('getMyReviewForQuestion error:', error);
+    console.error('getMyReviewForRequest error:', error);
     return res.status(500).json({ error: 'Failed to fetch review' });
   }
 };
+
+export { AnswerRequestStatus, QuestionStatus };

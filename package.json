@@ -17,9 +17,8 @@
     "migrate:init:test": "dotenv -e .env.test -- prisma migrate deploy --schema=src/core/database/prisma/schema.prisma",
     "migrate:reset:test": "dotenv -e .env.test -- prisma migrate reset --force --schema=src/core/database/prisma/schema.prisma",
     "test": "NODE_ENV=test && jest --watchAll --detectOpenHandles",
-    "test:module:question": "NODE_ENV=test && jest tests/modules/question/questions.test.ts --detectOpenHandles --verbose --watch",
-    "test:module:user": "NODE_ENV=test && jest tests/modules/user/user.test.ts --detectOpenHandles --verbose --watch",
-    "test:module:ratings": "NODE_ENV=test && jest tests/modules/ratings/ratings.test.ts --detectOpenHandles --verbose --watch"
+    "test:ci": "NODE_ENV=test && jest --detectOpenHandles --forceExit --maxWorkers=1",
+    "test:coverage": "NODE_ENV=test && jest --detectOpenHandles --forceExit --maxWorkers=1 --coverage"
   },
   "keywords": [],
   "author": "",

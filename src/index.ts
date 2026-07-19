@@ -1,4 +1,6 @@
-// src/index.ts
+// Load .env before any other module reads process.env (jwt secret mismatch bug).
+import 'dotenv/config';
+
 import { createServer } from 'http';
 import app from './app';
 import config from './core/config/default';

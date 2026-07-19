@@ -44,13 +44,6 @@ export const initSocket = (httpServer: HttpServer) => {
   });
 };
 
-// Helper to broadcast event to all users (or filter by proximity later)
-export const broadcastQuestionUpdate = (questionId: string, payload: any) => {
-  if (io) {
-    io.emit('question:update', { questionId, ...payload });
-  }
-};
-
 /**
  * Emit a socket event to a single user's room (`user:<userId>`).
  * Returns true if io was available (delivery is best-effort — the user

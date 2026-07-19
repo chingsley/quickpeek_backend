@@ -1,855 +1,762 @@
-// src / modules / questions / controllers / questionController.ts;
-
-import { Answer } from '@prisma/client';
+import { AnswerRequestStatus, Prisma, QuestionStatus } from '@prisma/client';
 import { Request, Response } from 'express';
 import prisma from '../../../core/database/prisma/client';
-import { sendAnswerToquestionCreatorQueue } from '../../../core/queues/sendAnswerToQuestionCreatorQueue';
-import { notifyAssignedResponderQueue } from '../../../core/queues/notifyAssignedResponderQueue';
-import redisClient from '../../../core/config/redis';
-import { broadcastQuestionUpdate, emitToUser, io } from '../../../core/socket/socket.server';
-import { questionTimeoutQueue } from '../../../core/queues/questionTimeoutQueue';
-import { getUserRating, computeAverage } from '../../../common/utils/ratings';
-import { uploadAnswerImage } from '../../../core/config/cloudinary';
+import { emitToUser } from '../../../core/socket/socket.server';
+import { calculateHaversineDistance } from '../../../common/utils/geo.utils';
+import { createSystemMessage } from '../../../common/utils/messages.utils';
 import {
-  nearbyCacheKey,
+  getUserRatingByRole,
+  invalidateUserRatingCache,
+} from '../../../common/utils/ratings';
+import { RatingRole } from '@prisma/client';
+import {
   getCachedNearbyQuestions,
-  setCachedNearbyQuestions,
   invalidateNearbyQuestionsCache,
+  nearbyCacheKey,
+  setCachedNearbyQuestions,
 } from '../../../common/utils/cache';
-import { expireAssignmentIfTtrElapsed } from '../../../common/utils/question-assignment.utils';
-import { createInitialQuestionerMessages } from '../../../common/utils/messages.utils';
+import {
+  assignFeedSection,
+  buildViewerRequestSummary,
+  FEED_SECTION_ORDER,
+  FEED_SECTION_TITLES,
+  FeedSectionKey,
+  getActiveBlock,
+  loadViewerRequestMap,
+  loadAwaitingApprovalFeedItems,
+  ViewerRequestSummary,
+} from '../../../common/utils/requestViewer.utils';
 
-// Default TTR window for an assigned question (configurable via env).
-const DEFAULT_TTR_MS = parseInt(process.env.QUESTION_TIME_TO_RESPOND_MS || `${10 * 60 * 1000}`, 10);
-const RADIUS_OF_CONCERN_IN_KM = parseFloat(process.env.RADIUS_OF_CONCERN_IN_KM || '3');
+type AuthedRequest = Request & { user?: { userId: string } };
+
+const DEFAULT_FEED_PAGE_SIZE = 20;
+const MAX_FEED_PAGE_SIZE = 50;
+
+const parsePagination = (query: Request['query']) => {
+  const page = Math.max(parseInt(String(query.page || '1'), 10), 1);
+  const limit = Math.min(
+    Math.max(parseInt(String(query.limit || String(DEFAULT_FEED_PAGE_SIZE)), 10), 1),
+    MAX_FEED_PAGE_SIZE,
+  );
+  return { page, limit, skip: (page - 1) * limit };
+};
+
+const publicQuestionShape = (q: any) => ({
+  id: q.id,
+  title: q.title,
+  detail: q.detail,
+  price: q.price,
+  acceptanceCriteria: q.acceptanceCriteria,
+  latitude: q.latitude,
+  longitude: q.longitude,
+  address: q.address,
+  answerRadiusKm: q.answerRadiusKm,
+  status: q.status,
+  createdAt: q.createdAt.toISOString(),
+  answeredAt: q.answeredAt?.toISOString() ?? null,
+  category: q.category,
+  questioner: q.user && {
+    id: q.user.id,
+    name: q.user.name,
+    username: q.user.username,
+    profileImageUrl: q.user.profileImageUrl,
+  },
+});
 
 /**
- * POST /questions — creates a question DRAFT (status OPEN). Under the
- * responder-selection flow, creation no longer broadcasts; the questioner
- * must subsequently POST /questions/:id/assign to pick a responder.
+ * POST /questions — create a marketplace question.
+ * Body validated by validateQuestionCreation.
  */
-export const createQuestion = async (req: Request, res: Response) => {
+export const createQuestion = async (req: AuthedRequest, res: Response) => {
   try {
+    const {
+      title,
+      detail,
+      categoryId,
+      price,
+      acceptanceCriteria,
+      latitude,
+      longitude,
+      address,
+      answerRadiusKm,
+    } = req.body;
+
     const question = await prisma.question.create({
-      data: { ...req.body, userId: req.user!.userId },
+      data: {
+        title,
+        detail,
+        categoryId,
+        price,
+        acceptanceCriteria,
+        latitude: latitude ?? null,
+        longitude: longitude ?? null,
+        address: address ?? null,
+        answerRadiusKm: answerRadiusKm ?? null,
+        userId: req.user!.userId,
+      },
+      include: { category: { select: { id: true, name: true, slug: true } } },
     });
 
-    // A new OPEN draft would surface in nearby lists, so invalidate the cache.
-    invalidateNearbyQuestionsCache().catch((err) =>
+    await invalidateNearbyQuestionsCache().catch((err) =>
       console.error('createQuestion cache invalidation failed', err),
     );
 
-    res.status(201).json({
+    return res.status(201).json({
       message: 'Question created successfully',
-      data: question,
+      data: { ...publicQuestionShape(question), userId: question.userId },
     });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to create question' });
+    console.error('createQuestion error:', error);
+    return res.status(500).json({ error: 'Failed to create question' });
   }
 };
 
-// TODO: paginate this endpoint
-export const getUserPostedQuestions = async (req: Request, res: Response) => {
+/**
+ * GET /questions/feed — public feed of OPEN questions.
+ * Authenticated viewers receive sectioned feed with interaction state.
+ * Filters:
+ *   ?categoryId=         restrict to category
+ *   ?lat=&lng=           viewer coords (enables distance + nearMe flag)
+ *   ?radiusKm=           restrict to within radius of viewer
+ *   ?page=&limit=        pagination (flat feed only)
+ */
+export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
   try {
-    const questions = await prisma.question.findMany({
-      where: { userId: req.user?.userId },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            username: true,
-            profileImageUrl: true,
-          },
-        },
-        answers: {
-          select: {
-            id: true,
-            text: true,
-            user: {
-              select: {
-                id: true,
-                username: true,
-                userRatings: {
-                  where: { role: 'AS_RESPONDER' },
-                  select: { totalStars: true, reviewsCount: true },
-                },
-              },
-            },
-          },
-        },
-        reviews: {
-          select: {
-            id: true,
-            stars: true,
-            comment: true,
-            raterRole: true,
-            isRevealed: true,
-            rateeId: true,
-          },
-        },
-        messages: {
-          orderBy: { createdAt: 'asc' },
-          select: {
-            text: true,
-            senderId: true,
-            sender: {
-              select: {
-                id: true,
-                name: true,
-                username: true,
-                profileImageUrl: true,
-              },
-            },
-          },
-        },
-        assignedResponder: {
-          select: {
-            id: true,
-            name: true,
-            username: true,
-            profileImageUrl: true,
-            userRatings: {
-              where: { role: 'AS_RESPONDER' },
-              select: { totalStars: true, reviewsCount: true },
-            },
-          },
-        },
-      },
-    });
+    const viewerId = req.user?.userId;
+    const { page, limit, skip } = parsePagination(req.query);
+    const categoryId = typeof req.query.categoryId === 'string' ? req.query.categoryId : undefined;
+    const lat = req.query.lat != null ? parseFloat(String(req.query.lat)) : NaN;
+    const lng = req.query.lng != null ? parseFloat(String(req.query.lng)) : NaN;
+    const radiusKm = req.query.radiusKm != null ? parseFloat(String(req.query.radiusKm)) : NaN;
+    const clientPassedCoords = !Number.isNaN(lat) && !Number.isNaN(lng);
+    let effectiveLat = lat;
+    let effectiveLng = lng;
+    let viewerHasCoords = clientPassedCoords;
 
-    const resolvedQuestions = [];
-    for (const question of questions) {
-      const expired = await expireAssignmentIfTtrElapsed(question);
-      resolvedQuestions.push(
-        expired
-          ? {
-            ...question,
-            status: 'EXPIRED' as any,
-            expiredAt: new Date(),
-          }
-          : question,
-      );
-    }
-
-    const responderIdsMissingRelation = new Set<string>();
-    for (const question of resolvedQuestions) {
-      if (question.assignedResponderId && !question.assignedResponder) {
-        responderIdsMissingRelation.add(question.assignedResponderId);
+    if (viewerId && !viewerHasCoords) {
+      const userLocation = await prisma.location.findUnique({
+        where: { userId: viewerId },
+        select: { latitude: true, longitude: true },
+      });
+      if (userLocation) {
+        effectiveLat = userLocation.latitude;
+        effectiveLng = userLocation.longitude;
+        viewerHasCoords = true;
       }
     }
 
-    const extraResponders =
-      responderIdsMissingRelation.size > 0
-        ? await prisma.user.findMany({
-          where: { id: { in: [...responderIdsMissingRelation] } },
-          select: {
-            id: true,
-            name: true,
-            username: true,
-            profileImageUrl: true,
-          },
+    const useRadiusFilter =
+      clientPassedCoords && !Number.isNaN(radiusKm) && radiusKm > 0;
+
+    if (!viewerId && !categoryId && !viewerHasCoords && page === 1) {
+      const key = `feed:open:p1:limit${limit}`;
+      const cached = await getCachedNearbyQuestions<any>(key);
+      if (cached) {
+        return res.status(200).json({ message: 'Successful (cached)', data: cached });
+      }
+    }
+
+    const where: Prisma.QuestionWhereInput = {
+      status: QuestionStatus.OPEN,
+      ...(categoryId ? { categoryId } : {}),
+      ...(viewerId ? { userId: { not: viewerId } } : {}),
+    };
+
+    const rows = await prisma.question.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        category: { select: { id: true, name: true, slug: true } },
+        user: {
+          select: { id: true, name: true, username: true, profileImageUrl: true },
+        },
+      },
+    });
+
+    const questionIds = rows.map((q) => q.id);
+    const { requestMap } = viewerId
+      ? await loadViewerRequestMap(viewerId, questionIds)
+      : { requestMap: new Map<string, ViewerRequestSummary>() };
+
+    const enriched = rows.map((q) => {
+      const item: any = publicQuestionShape(q);
+      let nearMe = false;
+      if (viewerHasCoords && q.latitude != null && q.longitude != null) {
+        const distanceKm = calculateHaversineDistance(
+          effectiveLat,
+          effectiveLng,
+          q.latitude,
+          q.longitude,
+        );
+        item.distanceKm = Number(distanceKm.toFixed(2));
+        if (useRadiusFilter) {
+          nearMe = distanceKm <= radiusKm;
+        } else if (q.answerRadiusKm != null) {
+          nearMe = distanceKm <= q.answerRadiusKm;
+        }
+      } else {
+        item.distanceKm = null;
+      }
+      item.nearMe = nearMe;
+
+      const viewerRequest = requestMap.get(q.id) ?? null;
+      if (viewerRequest) {
+        item.viewerRequest = viewerRequest;
+        item.sectionKey = assignFeedSection({
+          viewerRequest,
+          isBlocked: viewerRequest.isBlocked,
+          nearMe,
+        });
+      } else if (viewerId) {
+        item.sectionKey = assignFeedSection({
+          viewerRequest: null,
+          isBlocked: false,
+          nearMe,
+        });
+      }
+
+      return item;
+    });
+
+    const visible = useRadiusFilter
+      ? enriched.filter((q: any) => {
+          if (q.viewerRequest) return true;
+          return q.distanceKm != null && q.distanceKm <= radiusKm;
         })
-        : [];
-    const extraResponderMap = new Map(extraResponders.map((user) => [user.id, user]));
+      : enriched;
 
-    const formattedQuestions = resolvedQuestions.map((question) => {
-      const messages = (question as any).messages ?? [];
-      const responderFromMessages = messages.find(
-        (message: any) => message.senderId !== question.userId,
-      )?.sender;
-      const responder =
-        question.assignedResponder ??
-        (question.assignedResponderId
-          ? extraResponderMap.get(question.assignedResponderId)
-          : null) ??
-        responderFromMessages ??
-        null;
-      const lastMessage = messages[messages.length - 1]?.text ?? null;
+    if (viewerId) {
+      const buckets = new Map<FeedSectionKey, any[]>(
+        FEED_SECTION_ORDER.map((key) => [key, []]),
+      );
+      for (const item of visible) {
+        const key = (item.sectionKey as FeedSectionKey) ?? 'new';
+        buckets.get(key)?.push(item);
+      }
 
-      return {
-        id: question.id,
-        text: question.text,
-        longitude: question.longitude,
-        latitude: question.latitude,
-        address: question.address,
-        userId: question.userId,
-        questionerName: question.user?.name ?? question.user?.username,
-        questionerUsername: question.user?.username,
-        questionerProfileImageUrl: question.user?.profileImageUrl ?? null,
-        assignedResponderId: question.assignedResponderId ?? responder?.id ?? null,
-        assignedResponderName: responder?.name ?? null,
-        assignedResponderUsername: responder?.username ?? null,
-        assignedResponderProfileImageUrl: responder?.profileImageUrl ?? null,
-        status: question.status,
-        createdAt: question.createdAt,
-        updatedAt: question.updatedAt,
-        answers: question.answers.map((answer) => {
-          const userRating = answer.user.userRatings?.[0];
-          const responderAverageRating = computeAverage(
-            userRating?.totalStars ?? 0,
-            userRating?.reviewsCount ?? 0,
-          );
-          return {
-            id: answer.id,
-            text: answer.text,
-            rating: undefined,
-            responderUsername: answer.user.username,
-            responderAverageRating,
-            responderID: answer.user.id,
-          };
-        }),
-        lastMessage,
-        questionReview: (question as any).reviews?.find(
-          (review: any) => review.raterRole === 'QUESTIONER' && review.isRevealed,
-        ) ?? null,
-      };
-    });
+      const awaitingApproval = await loadAwaitingApprovalFeedItems(viewerId);
+      for (const { request, unreadCount } of awaitingApproval) {
+        const q = request.question;
+        buckets.get('awaiting_your_approval')?.push({
+          ...publicQuestionShape(q),
+          userId: q.userId,
+          incomingRequest: {
+            id: request.id,
+            status: request.status,
+            unreadCount,
+            responder: request.responder,
+          },
+          sectionKey: 'awaiting_your_approval',
+        });
+      }
 
-    res.status(200).json({
-      message: 'Successful',
-      data: formattedQuestions,
-    });
+      const sections = FEED_SECTION_ORDER.map((key) => ({
+        key,
+        title: FEED_SECTION_TITLES[key],
+        items: buckets.get(key) ?? [],
+      })).filter((section) => section.items.length > 0);
+
+      return res.status(200).json({
+        message: 'Successful',
+        data: { sections },
+      });
+    }
+
+    const paginated = visible.slice(skip, skip + limit);
+    const response = {
+      items: paginated,
+      pagination: {
+        page,
+        limit,
+        total: visible.length,
+        hasMore: skip + paginated.length < visible.length,
+      },
+    };
+
+    if (!categoryId && !viewerHasCoords && page === 1) {
+      const key = `feed:open:p1:limit${limit}`;
+      await setCachedNearbyQuestions(key, response).catch(() => {});
+    }
+
+    return res.status(200).json({ message: 'Successful', data: response });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to retrieve questions' });
+    console.error('getQuestionFeed error:', error);
+    return res.status(500).json({ error: 'Failed to fetch question feed' });
   }
 };
 
-export const getAnsweredQuestions = async (req: Request, res: Response) => {
+/**
+ * GET /questions/mine — questioner's own questions with per-status request counts.
+ */
+export const getUserPostedQuestions = async (req: AuthedRequest, res: Response) => {
   try {
     const userId = req.user!.userId;
+
     const questions = await prisma.question.findMany({
-      where: {
-        OR: [
-          {
-            answers: {
-              some: {
-                userId,
-              },
-            },
-          },
-          {
-            assignedResponderId: userId,
-            status: 'ANSWERED' as any,
-          },
-        ],
-      },
-      orderBy: { updatedAt: 'desc' },
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
       include: {
+        category: { select: { id: true, name: true, slug: true } },
+        requests: {
+          select: {
+            id: true,
+            status: true,
+            responder: {
+              select: { id: true, name: true, username: true, profileImageUrl: true },
+            },
+            createdAt: true,
+            respondedAt: true,
+          },
+        },
+      },
+    });
+
+    const data = questions.map((q) => {
+      const requestCounts = q.requests.reduce(
+        (acc, r) => {
+          acc[r.status] = (acc[r.status] ?? 0) + 1;
+          return acc;
+        },
+        {} as Record<AnswerRequestStatus, number>,
+      );
+      return {
+        ...publicQuestionShape(q),
+        userId: q.userId,
+        requests: q.requests,
+        requestCounts,
+      };
+    });
+
+    return res.status(200).json({ message: 'Successful', data });
+  } catch (error) {
+    console.error('getUserPostedQuestions error:', error);
+    return res.status(500).json({ error: 'Failed to fetch questions' });
+  }
+};
+
+type CanRequestReason =
+  | 'OUTSIDE_RADIUS'
+  | 'ALREADY_REQUESTED'
+  | 'BLOCKED'
+  | 'ANSWERED'
+  | 'CANCELLED'
+  | 'OWN_QUESTION'
+  | 'NO_VIEWER_LOCATION';
+
+const computeCanRequest = async (
+  question: {
+    id: string;
+    userId: string;
+    status: QuestionStatus;
+    latitude: number | null;
+    longitude: number | null;
+    answerRadiusKm: number | null;
+  },
+  viewer: { userId: string; latitude?: number | null; longitude?: number | null } | null,
+): Promise<{ canRequest: boolean; reason: CanRequestReason | null; existingRequestId: string | null }> => {
+  if (question.userId === viewer?.userId) {
+    return { canRequest: false, reason: 'OWN_QUESTION', existingRequestId: null };
+  }
+  if (question.status === QuestionStatus.ANSWERED) {
+    return { canRequest: false, reason: 'ANSWERED', existingRequestId: null };
+  }
+  if (question.status === QuestionStatus.CANCELLED) {
+    return { canRequest: false, reason: 'CANCELLED', existingRequestId: null };
+  }
+
+  let existingRequestId: string | null = null;
+  if (viewer) {
+    const activeBlock = await getActiveBlock(question.id, viewer.userId);
+    if (activeBlock) {
+      return {
+        canRequest: false,
+        reason: 'BLOCKED',
+        existingRequestId: activeBlock.answerRequestId,
+      };
+    }
+
+    const existing = await prisma.answerRequest.findUnique({
+      where: {
+        questionId_responderId: { questionId: question.id, responderId: viewer.userId },
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      existingRequestId = existing.id;
+      return { canRequest: false, reason: 'ALREADY_REQUESTED', existingRequestId };
+    }
+  }
+
+  // Radius check only if the question has a location + radius.
+  if (
+    question.answerRadiusKm != null &&
+    question.latitude != null &&
+    question.longitude != null
+  ) {
+    if (!viewer || viewer.latitude == null || viewer.longitude == null) {
+      return { canRequest: false, reason: 'NO_VIEWER_LOCATION', existingRequestId };
+    }
+    const distance = calculateHaversineDistance(
+      viewer.latitude,
+      viewer.longitude,
+      question.latitude,
+      question.longitude,
+    );
+    if (distance > question.answerRadiusKm) {
+      return { canRequest: false, reason: 'OUTSIDE_RADIUS', existingRequestId };
+    }
+  }
+
+  return { canRequest: true, reason: null, existingRequestId };
+};
+
+/**
+ * GET /questions/:id — public question detail.
+ * Authenticated viewers get a `canRequest` verdict + their existing request status.
+ * Questioner's public rating summary is included for responder due-diligence.
+ */
+export const getQuestionDetail = async (req: AuthedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const viewerId = req.user?.userId;
+
+    const question = await prisma.question.findUnique({
+      where: { id },
+      include: {
+        category: { select: { id: true, name: true, slug: true } },
         user: {
           select: {
             id: true,
             name: true,
             username: true,
             profileImageUrl: true,
+            location: { select: { latitude: true, longitude: true } },
           },
-        },
-        answers: {
-          where: {
-            userId,
-          },
-          select: {
-            id: true,
-            text: true,
-            imageUrl: true,
-            user: {
-              select: {
-                id: true,
-                username: true,
-                userRatings: {
-                  where: { role: 'AS_RESPONDER' },
-                  select: { totalStars: true, reviewsCount: true },
-                },
-              },
-            },
-          },
-        },
-        reviews: {
-          select: {
-            id: true,
-            stars: true,
-            comment: true,
-            raterRole: true,
-            isRevealed: true,
-          },
-        },
-        messages: {
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-          select: { text: true },
         },
       },
     });
 
-    const formattedQuestions = questions.map((question) => {
-      return {
-        id: question.id,
-        text: question.text,
-        longitude: question.longitude,
-        latitude: question.latitude,
-        address: question.address,
-        userId: question.userId,
-        questionerName: question.user?.name ?? question.user?.username,
-        questionerUsername: question.user?.username,
-        questionerProfileImageUrl: question.user?.profileImageUrl ?? null,
-        status: question.status,
-        createdAt: question.createdAt,
-        updatedAt: question.updatedAt,
-        answers: question.answers.map((answer) => {
-          const userRating = answer.user.userRatings?.[0];
-          const responderAverageRating = computeAverage(
-            userRating?.totalStars ?? 0,
-            userRating?.reviewsCount ?? 0,
-          );
-          return {
-            id: answer.id,
-            text: answer.text,
-            imageUrl: answer.imageUrl,
-            rating: undefined,
-            responderUsername: answer.user.username,
-            responderAverageRating,
-            responderID: answer.user.id,
-          };
-        }),
-        lastMessage: (question as any).messages?.[0]?.text ?? null,
-      };
-    });
+    if (!question) {
+      return res.status(404).json({ error: 'Question not found' });
+    }
 
-    res.status(200).json({
+    const viewer =
+      viewerId != null
+        ? await prisma.user.findUnique({
+            where: { id: viewerId },
+            select: {
+              id: true,
+              location: { select: { latitude: true, longitude: true } },
+            },
+          })
+        : null;
+
+    const viewerWithCoords = viewer
+      ? {
+          userId: viewer.id,
+          latitude: viewer.location?.latitude ?? null,
+          longitude: viewer.location?.longitude ?? null,
+        }
+      : null;
+
+    const canRequestInfo = await computeCanRequest(question, viewerWithCoords);
+
+    let viewerRequest: ViewerRequestSummary | null = null;
+    if (viewerId) {
+      const existing = await prisma.answerRequest.findUnique({
+        where: {
+          questionId_responderId: { questionId: id, responderId: viewerId },
+        },
+        select: {
+          id: true,
+          status: true,
+          rejectionReason: true,
+          responderId: true,
+        },
+      });
+      const activeBlock = await getActiveBlock(id, viewerId);
+      if (existing) {
+        viewerRequest = await buildViewerRequestSummary(
+          existing,
+          viewerId,
+          !!activeBlock,
+        );
+      } else if (activeBlock) {
+        viewerRequest = {
+          id: '',
+          status: AnswerRequestStatus.REJECTED,
+          rejectionReason: activeBlock.rejectionReason,
+          hasResponded: false,
+          unreadCount: 0,
+          isBlocked: true,
+        };
+      }
+    }
+
+    const [asResponder, asQuestioner] = await Promise.all([
+      getUserRatingByRole(question.userId, RatingRole.AS_RESPONDER),
+      getUserRatingByRole(question.userId, RatingRole.AS_QUESTIONER),
+    ]);
+
+    let distanceKm: number | null = null;
+    if (
+      viewerWithCoords &&
+      viewerWithCoords.latitude != null &&
+      viewerWithCoords.longitude != null &&
+      question.latitude != null &&
+      question.longitude != null
+    ) {
+      distanceKm = Number(
+        calculateHaversineDistance(
+          viewerWithCoords.latitude,
+          viewerWithCoords.longitude,
+          question.latitude,
+          question.longitude,
+        ).toFixed(2),
+      );
+    }
+
+    return res.status(200).json({
       message: 'Successful',
-      data: formattedQuestions,
+      data: {
+        ...publicQuestionShape(question),
+        userId: question.userId,
+        distanceKm,
+        questioner: {
+          id: question.user.id,
+          name: question.user.name,
+          username: question.user.username,
+          profileImageUrl: question.user.profileImageUrl,
+          asResponder: {
+            averageRating: asResponder.averageRating,
+            reviewsCount: asResponder.reviewsCount,
+          },
+          asQuestioner: {
+            averageRating: asQuestioner.averageRating,
+            reviewsCount: asQuestioner.reviewsCount,
+          },
+        },
+        canRequest: canRequestInfo.canRequest,
+        canRequestReason: canRequestInfo.reason,
+        existingRequestId: canRequestInfo.existingRequestId,
+        viewerRequest,
+      },
     });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to retrieve questions' });
+    console.error('getQuestionDetail error:', error);
+    return res.status(500).json({ error: 'Failed to fetch question detail' });
   }
 };
 
-export const createAnswerForQuestion = async (req: Request, res: Response) => {
+/**
+ * GET /questions/:id/rejected-responders — questioner-only list of blocked responders.
+ */
+export const getRejectedResponders = async (req: AuthedRequest, res: Response) => {
   try {
-    const { text } = req.body;
-    const questionId = req.params.questionId;
+    const { id } = req.params;
+    const userId = req.user!.userId;
+
+    const question = await prisma.question.findUnique({ where: { id } });
+    if (!question) {
+      return res.status(404).json({ error: 'Question not found' });
+    }
+    if (question.userId !== userId) {
+      return res.status(403).json({ error: 'Only the questioner can view rejected responders' });
+    }
+
+    const blocks = await prisma.questionResponderBlock.findMany({
+      where: { questionId: id, removedAt: null },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        responder: {
+          select: { id: true, name: true, username: true, profileImageUrl: true },
+        },
+      },
+    });
+
+    const items = blocks.map((b) => ({
+      responderId: b.responderId,
+      rejectionReason: b.rejectionReason,
+      rejectedAt: b.createdAt.toISOString(),
+      responder: b.responder,
+    }));
+
+    return res.status(200).json({ message: 'Successful', data: { items } });
+  } catch (error) {
+    console.error('getRejectedResponders error:', error);
+    return res.status(500).json({ error: 'Failed to fetch rejected responders' });
+  }
+};
+
+/**
+ * DELETE /questions/:id/rejected-responders/:responderId
+ * Questioner-only. Unblocks responder and deletes rejected request so they can re-request.
+ */
+export const unblockResponder = async (req: AuthedRequest, res: Response) => {
+  try {
+    const { id: questionId, responderId } = req.params;
     const userId = req.user!.userId;
 
     const question = await prisma.question.findUnique({ where: { id: questionId } });
     if (!question) {
       return res.status(404).json({ error: 'Question not found' });
     }
+    if (question.userId !== userId) {
+      return res.status(403).json({ error: 'Only the questioner can unblock responders' });
+    }
 
-    // Responder-Selection Flow gate: only the assigned responder can answer,
-    // and only while the question is ASSIGNED (within the TTR window).
-    if ((question.status as any) !== 'ASSIGNED') {
-      return res.status(409).json({
-        error: `Question is not awaiting your answer (status: ${question.status})`,
+    const block = await prisma.questionResponderBlock.findFirst({
+      where: { questionId, responderId, removedAt: null },
+    });
+    if (!block) {
+      return res.status(404).json({ error: 'Responder is not on the rejected list' });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.questionResponderBlock.update({
+        where: { id: block.id },
+        data: { removedAt: new Date() },
+      });
+
+      if (block.answerRequestId) {
+        await tx.answerRequest.delete({ where: { id: block.answerRequestId } });
+      }
+    });
+
+    return res.status(200).json({ message: 'Responder can request again' });
+  } catch (error) {
+    console.error('unblockResponder error:', error);
+    return res.status(500).json({ error: 'Failed to unblock responder' });
+  }
+};
+
+/**
+ * POST /questions/:id/answered — questioner-only.
+ * Marks question ANSWERED and closes all PENDING requests with CLOSED_ANSWERED.
+ * Emits `question:answered` + a closing SYSTEM message to each affected responder.
+ */
+export const markQuestionAnswered = async (req: AuthedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user!.userId;
+
+    const question = await prisma.question.findUnique({ where: { id } });
+    if (!question) {
+      return res.status(404).json({ error: 'Question not found' });
+    }
+    if (question.userId !== userId) {
+      return res.status(403).json({ error: 'Only the questioner can mark this question as answered' });
+    }
+    if (question.status === QuestionStatus.ANSWERED) {
+      return res.status(200).json({ message: 'Question already marked as answered' });
+    }
+    if (question.status === QuestionStatus.CANCELLED) {
+      return res.status(409).json({ error: 'Cannot mark a cancelled question as answered' });
+    }
+
+    const now = new Date();
+    const [updated, pendingRequests] = await Promise.all([
+      prisma.question.update({
+        where: { id },
+        data: { status: QuestionStatus.ANSWERED, answeredAt: now },
+      }),
+      prisma.answerRequest.findMany({
+        where: { questionId: id, status: AnswerRequestStatus.PENDING },
+        select: { id: true, responderId: true },
+      }),
+    ]);
+
+    if (pendingRequests.length > 0) {
+      await prisma.answerRequest.updateMany({
+        where: { id: { in: pendingRequests.map((r) => r.id) } },
+        data: { status: AnswerRequestStatus.CLOSED_ANSWERED, respondedAt: now },
+      });
+
+      await Promise.all(
+        pendingRequests.map((r) =>
+          createSystemMessage({
+            questionId: id,
+            answerRequestId: r.id,
+            senderId: userId,
+            text: 'Question has been answered.',
+            visibleToUserId: r.responderId,
+          }).catch((err) =>
+            console.error('markQuestionAnswered system message failed', err),
+          ),
+        ),
+      );
+    }
+
+    const payload = { questionId: id, status: QuestionStatus.ANSWERED, answeredAt: now.toISOString() };
+    emitToUser(userId, 'question:answered', payload);
+    for (const r of pendingRequests) {
+      emitToUser(r.responderId, 'question:answered', payload);
+    }
+
+    return res.status(200).json({
+      message: 'Question marked as answered',
+      data: { id: updated.id, status: updated.status, answeredAt: updated.answeredAt?.toISOString() ?? null },
+    });
+  } catch (error) {
+    console.error('markQuestionAnswered error:', error);
+    return res.status(500).json({ error: 'Failed to mark question as answered' });
+  }
+};
+
+/**
+ * DELETE /questions/:id — questioner-only. Marks CANCELLED. Idempotent.
+ */
+export const cancelQuestion = async (req: AuthedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user!.userId;
+
+    const question = await prisma.question.findUnique({ where: { id } });
+    if (!question) {
+      return res.status(404).json({ error: 'Question not found' });
+    }
+    if (question.userId !== userId) {
+      return res.status(403).json({ error: 'Only the questioner can cancel this question' });
+    }
+    if (question.status === QuestionStatus.CANCELLED) {
+      return res.status(200).json({ message: 'Question already cancelled' });
+    }
+
+    const now = new Date();
+    const [updated, openRequests] = await Promise.all([
+      prisma.question.update({
+        where: { id },
+        data: { status: QuestionStatus.CANCELLED },
+      }),
+      prisma.answerRequest.findMany({
+        where: { questionId: id, status: AnswerRequestStatus.PENDING },
+        select: { id: true, responderId: true },
+      }),
+    ]);
+
+    if (openRequests.length > 0) {
+      await prisma.answerRequest.updateMany({
+        where: { id: { in: openRequests.map((r) => r.id) } },
+        data: { status: AnswerRequestStatus.CLOSED_ANSWERED, respondedAt: now },
       });
     }
-    if (question.assignedResponderId !== userId) {
-      return res.status(403).json({ error: 'Only the assigned responder can answer this question' });
+
+    const payload = { questionId: id, status: QuestionStatus.CANCELLED };
+    emitToUser(userId, 'question:cancelled', payload);
+    for (const r of openRequests) {
+      emitToUser(r.responderId, 'question:cancelled', payload);
     }
-
-    // Image: prefer a Cloudinary-uploaded multipart file; otherwise accept an
-    // `imageUrl` passed in the JSON body (e.g. client-side upload).
-    let imageUrl: string | undefined;
-    const file = (req as any).file as Express.Multer.File | undefined;
-    if (file) {
-      try {
-        imageUrl = await uploadAnswerImage(file.buffer);
-      } catch (uploadErr: any) {
-        console.error('Answer image upload failed:', uploadErr);
-        return res.status(400).json({ error: uploadErr?.message || 'Image upload failed' });
-      }
-    } else if (req.body.imageUrl) {
-      imageUrl = req.body.imageUrl;
-    }
-
-    const answer = await prisma.answer.create({
-      data: {
-        questionId,
-        text,
-        imageUrl,
-        userId,
-      },
-    });
-
-    // Flip question to ANSWERED, release the TTR lock, and cancel the timeout
-    // job so it doesn't fire after the answer is in.
-    await prisma.question.update({
-      where: { id: questionId },
-      data: {
-        status: 'ANSWERED' as any,
-        assignedAt: null,
-        // Keep assignedResponderId for historical display of who answered.
-      },
-    });
-
-    try {
-      await redisClient.del(`lock:question:${questionId}`);
-    } catch (lockErr) {
-      console.error('Failed to release TTR lock:', lockErr);
-    }
-
-    try {
-      const pendingJobs = await questionTimeoutQueue.getJobs(['delayed'], 0, 100);
-      await Promise.all(
-        pendingJobs
-          .filter((j) => j.data?.questionId === questionId)
-          .map((j) => j.remove()),
-      );
-    } catch (cancelErr) {
-      console.error('Failed to cancel timeout job:', cancelErr);
-    }
-
-    // Notify the questioner. Use the field name the consumer expects
-    // (sendAnswerToQuestionCreatorJob reads `answerContent`).
-    sendAnswerToquestionCreatorQueue.add({
-      questionId,
-      answerContent: answer.text,
-      responderId: answer.userId,
-    });
-
-    const answerUpdatePayload = {
-      questionId,
-      status: 'ANSWERED',
-      answer: answer.text,
-      answerId: answer.id,
-      imageUrl: answer.imageUrl ?? undefined,
-    };
-
-    emitToUser(userId, 'question:update', answerUpdatePayload);
-    emitToUser(question.userId, 'question:update', answerUpdatePayload);
-
-    res.status(201).json({
-      message: 'Answer created successfully',
-      data: answer,
-    });
-  } catch (error) {
-    console.error('createAnswerForQuestion error:', error);
-    res.status(500).json({ error: 'Failed to create answer' });
-  }
-};
-
-export const getAnswersByQuestionId = async (req: Request, res: Response) => {
-  try {
-    const { questionId } = req.params;
-    const userId = req.user!.userId;
-    type AnswerWithUser = Answer & {
-      user: {
-        id: string;
-        username: string;
-      };
-    };
-    const answersWithUser = await prisma.answer.findMany({
-      where: {
-        questionId,
-        question: {
-          userId,
-        },
-      },
-      include: {
-        user: { // the responder
-          select: {
-            id: true,
-            username: true,
-          },
-        },
-      },
-    }) as AnswerWithUser[];
-
-    // Compute each responder's average rating via the read-through cache util.
-    const data = await Promise.all(
-      answersWithUser.map(async (answer) => {
-        const rating = await getUserRating(answer.user.id);
-        return {
-          ...answer,
-          responderAverageRating: rating.averageRating,
-          responderRatingSource: rating.source,
-        };
-      }),
-    );
 
     return res.status(200).json({
-      message: 'successful',
-      data,
+      message: 'Question cancelled',
+      data: { id: updated.id, status: updated.status },
     });
   } catch (error) {
-    return res.status(500).json({ error: 'Failed to get question. Internal service error.' });
+    console.error('cancelQuestion error:', error);
+    return res.status(500).json({ error: 'Failed to cancel question' });
   }
 };
 
-export const getPendingQuestions = async (req: Request, res: Response) => {
-  try {
-    const { questionIds } = req.query;
-
-    if (!questionIds) {
-      return res.status(400).json({ error: 'No questionIds provided' });
-    }
-
-    const parsedIds = (questionIds as string).split(',').map(id => id.trim());
-    const question = await prisma.question.findMany({
-      where: {
-        id: {
-          in: parsedIds
-        },
-      },
-      include: {
-        user: {
-          select: {
-            username: true,
-          },
-        },
-      },
-    });
-
-    return res.json(question);
-  } catch (error) {
-    return res.status(500).json({ error: 'Failed to get question. Internal server error.' });
-  }
-};
-
-export const claimQuestion = async (req: Request, res: Response) => {
-  const { questionId } = req.params;
-  const userId = req.user!.userId;
-  const LOCK_DURATION_MS = 10 * 60 * 1000; // 10 Minutes
-
-  try {
-    const lockKey = `lock:question:${questionId}`;
-
-    // 1. Redis Atomic Check: NX = Only set if Not Exists, PX = Expiry in MS
-    const acquired = await redisClient.set(lockKey, userId, 'PX', LOCK_DURATION_MS, 'NX');
-
-    if (!acquired) {
-      return res.status(409).json({ error: 'This question has already been claimed by another user.' });
-    }
-
-    // 2. Update Database (legacy race-to-claim path; maps to ASSIGNED in the new model)
-    const updatedQuestion = await prisma.question.update({
-      where: { id: questionId },
-      data: {
-        status: 'ASSIGNED',
-        claimedByUserId: userId,
-        claimedAt: new Date(),
-      },
-    });
-
-    // 3. Start Timeout Timer (Bull Queue)
-    await questionTimeoutQueue.add(
-      { questionId, claimedByUserId: userId },
-      { delay: LOCK_DURATION_MS }
-    );
-
-    // 4. Notify everyone else to hide this question
-    broadcastQuestionUpdate(questionId, { status: 'ASSIGNED', claimedByUserId: userId });
-
-    res.json({ message: 'Question claimed successfully', question: updatedQuestion });
-
-  } catch (error) {
-    console.error("Claim Error:", error);
-    // Rollback Redis lock if DB update fails
-    await redisClient.del(`lock:question:${questionId}`);
-    res.status(500).json({ message: 'Error claiming question' });
-  }
-};
-
-// Nearby questions with Redis read-through cache (5-min TTL, quantized coords).
-export const getNearbyQuestions = async (req: Request, res: Response) => {
-  try {
-    const { latitude, longitude } = req.query;
-
-    if (!latitude || !longitude) {
-      return res.status(400).json({ error: "Latitude and Longitude required" });
-    }
-
-    const lat = parseFloat(latitude as string);
-    const lon = parseFloat(longitude as string);
-    const radiusInKm = parseFloat(process.env.RADIUS_OF_CONCERN_IN_KM || '3'); // Default 3km
-
-    // 1. Try cache.
-    const key = nearbyCacheKey(lat, lon, radiusInKm);
-    const cached = await getCachedNearbyQuestions<any>(key);
-    if (cached) {
-      return res.json({ message: "Successful", data: cached, source: 'cache' });
-    }
-
-    // 2. Cache miss: raw SQL to find OPEN questions within radius.
-    const nearbyQuestions = await prisma.$queryRaw`
-      SELECT id, text, address, longitude, latitude, status, "createdAt", "userId"
-      FROM questions
-      WHERE status = 'OPEN'
-      AND (6371 * acos(
-          cos(radians(${lat}))
-          * cos(radians(latitude))
-          * cos(radians(longitude) - radians(${lon}))
-          + sin(radians(${lat})) * sin(radians(latitude))
-      )) <= ${radiusInKm}
-      ORDER BY "createdAt" DESC
-      LIMIT 20;
-    `;
-
-    // 3. Repopulate cache.
-    await setCachedNearbyQuestions(key, nearbyQuestions);
-
-    res.json({ message: "Successful", data: nearbyQuestions, source: 'db' });
-  } catch (error) {
-    console.error("Error fetching nearby questions:", error);
-    res.status(500).json({ error: "Failed to fetch nearby questions" });
-  }
-};
-
-/**
- * Shared core for assigning (or re-assigning) a question to a responder.
- *
- * Validates ownership + question state + responder proximity, then sets the
- * question to ASSIGNED, acquires the TTR Redis lock, schedules the timeout
- * job, and enqueues the targeted notification.
- *
- * `reassigning` flips the precondition from `status === OPEN` to
- * `status === EXPIRED` (or legacy PENDING_ANSWER).
- */
-async function assignQuestionToResponder(opts: {
-  questionId: string;
-  questionerId: string;
-  responderId: string;
-  reassigning: boolean;
-}): Promise<{ question: any; }> {
-  const { questionId, questionerId, responderId, reassigning } = opts;
-
-  const question = await prisma.question.findUnique({ where: { id: questionId } });
-  if (!question) {
-    throw new ControllerError(404, 'Question not found');
-  }
-  if (question.userId !== questionerId) {
-    throw new ControllerError(403, 'Only the questioner can assign this question');
-  }
-
-  if (reassigning) {
-    const reassignable =
-      (question.status as any) === 'EXPIRED' || (question.status as any) === 'PENDING_ANSWER';
-    if (!reassignable) {
-      throw new ControllerError(
-        409,
-        'Question cannot be reassigned in its current status',
-      );
-    }
-  } else {
-    if ((question.status as any) !== 'OPEN') {
-      throw new ControllerError(
-        409,
-        'Question has already been assigned or is no longer open',
-      );
-    }
-  }
-
-  if (responderId === questionerId) {
-    throw new ControllerError(400, 'You cannot assign a question to yourself');
-  }
-
-  const responder = await prisma.user.findUnique({
-    where: { id: responderId },
-    include: { location: { select: { latitude: true, longitude: true } } },
-  });
-  if (!responder) {
-    throw new ControllerError(404, 'Responder not found');
-  }
-  if (!responder.location) {
-    throw new ControllerError(400, 'Responder has no known location');
-  }
-
-  // Validate the responder is within the radius of concern of the question.
-  const distanceKm = haversineKm(
-    question.latitude,
-    question.longitude,
-    responder.location.latitude,
-    responder.location.longitude,
-  );
-  if (distanceKm > RADIUS_OF_CONCERN_IN_KM) {
-    throw new ControllerError(
-      400,
-      `Responder is ${distanceKm.toFixed(2)}km away (max ${RADIUS_OF_CONCERN_IN_KM}km)`,
-    );
-  }
-
-  const now = new Date();
-  const updatedQuestion = await prisma.question.update({
-    where: { id: questionId },
-    data: {
-      status: 'ASSIGNED' as any,
-      assignedResponderId: responderId,
-      assignedAt: now,
-      timeToRespondMs: null,
-      respondByAt: null,
-      expiredAt: null,
-      claimedByUserId: responderId,
-      claimedAt: now,
-    },
-  });
-
-  await notifyAssignedResponderQueue.add({ questionId, assignedResponderId: responderId });
-
-  if (!reassigning) {
-    await createInitialQuestionerMessages({
-      questionId,
-      questionerId,
-      address: question.address,
-      bodyText: question.text,
-      assignedResponderId: responderId,
-    });
-  }
-
-  return { question: updatedQuestion };
-}
-
-class ControllerError extends Error {
-  statusCode: number;
-  constructor(statusCode: number, message: string) {
-    super(message);
-    this.statusCode = statusCode;
-  }
-}
-
-function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-/**
- * POST /questions/:questionId/assign
- * Responder-selection flow: questioner picks a responder for their OPEN draft.
- */
-export const assignQuestion = async (req: Request, res: Response) => {
-  try {
-    const { questionId } = req.params;
-    const { responderId } = req.body;
-    const result = await assignQuestionToResponder({
-      questionId,
-      questionerId: req.user!.userId,
-      responderId,
-      reassigning: false,
-    });
-    return res.status(200).json({
-      message: 'Question assigned successfully',
-      data: result.question,
-    });
-  } catch (error: any) {
-    if (error instanceof ControllerError) {
-      return res.status(error.statusCode).json({ error: error.message });
-    }
-    console.error('assignQuestion error:', error);
-    return res.status(500).json({ error: 'Failed to assign question' });
-  }
-};
-
-/**
- * POST /questions/:questionId/reassign
- * Responder-selection flow: questioner picks a different responder after the
- * previous assignment's TTR expired.
- */
-export const reassignQuestion = async (req: Request, res: Response) => {
-  try {
-    const { questionId } = req.params;
-    const { responderId } = req.body;
-    const result = await assignQuestionToResponder({
-      questionId,
-      questionerId: req.user!.userId,
-      responderId,
-      reassigning: true,
-    });
-    return res.status(200).json({
-      message: 'Question reassigned successfully',
-      data: result.question,
-    });
-  } catch (error: any) {
-    if (error instanceof ControllerError) {
-      return res.status(error.statusCode).json({ error: error.message });
-    }
-    console.error('reassignQuestion error:', error);
-    return res.status(500).json({ error: 'Failed to reassign question' });
-  }
-};
-
-/**
- * GET /questions/assigned
- * Returns questions assigned to the authenticated user as a responder, i.e.
- * the responder's inbox under the select-and-assign flow.
- */
-export const getAssignedQuestions = async (req: Request, res: Response) => {
-  try {
-    const userId = req.user!.userId;
-    const questions = await prisma.question.findMany({
-      where: {
-        assignedResponderId: userId,
-        status: { in: ['ASSIGNED', 'EXPIRED'] as any },
-      },
-      orderBy: { assignedAt: 'desc' },
-      include: {
-        user: { select: { id: true, name: true, username: true, profileImageUrl: true } },
-        answers: {
-          select: {
-            id: true,
-            text: true,
-          },
-          take: 1,
-        },
-        messages: {
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-          select: { text: true },
-        },
-      },
-    });
-
-    const activeQuestions = [];
-    for (const question of questions) {
-      if ((question.status as string) === 'ASSIGNED') {
-        const expired = await expireAssignmentIfTtrElapsed(question);
-        activeQuestions.push(
-          expired
-            ? { ...question, status: 'EXPIRED' as any, expiredAt: new Date() }
-            : question,
-        );
-      } else {
-        activeQuestions.push(question);
-      }
-    }
-
-    const data = activeQuestions.map((q) => {
-      const firstAnswer = (q as any).answers?.[0];
-      const lastMessage = (q as any).messages?.[0];
-      return {
-        id: q.id,
-        text: q.text,
-        longitude: q.longitude,
-        latitude: q.latitude,
-        address: q.address,
-        userId: q.userId,
-        questionerName: (q as any).user?.name ?? (q as any).user?.username,
-        questionerUsername: (q as any).user?.username,
-        questionerProfileImageUrl: (q as any).user?.profileImageUrl ?? null,
-        status: q.status,
-        createdAt: q.createdAt,
-        updatedAt: q.updatedAt,
-        assignedResponderId: q.assignedResponderId,
-        assignedAt: q.assignedAt,
-        timeToRespondMs: q.timeToRespondMs,
-        respondByAt: q.respondByAt,
-        expiredAt: q.expiredAt,
-        answeredAt: q.answeredAt,
-        answer: lastMessage?.text ?? firstAnswer?.text ?? undefined,
-        answerId: firstAnswer?.id ?? undefined,
-      };
-    });
-
-    return res.status(200).json({ message: 'Successful', data });
-  } catch (error) {
-    console.error('getAssignedQuestions error:', error);
-    return res.status(500).json({ error: 'Failed to fetch assigned questions' });
-  }
-};
-
-// `broadcastQuestionUpdate` / `io` are still used by the legacy `claimQuestion`
-// controller below; kept imported for back-compat until the claim flow is removed.
+// Re-exported for tests / future callers.
+export { computeCanRequest, invalidateUserRatingCache };
+export type { CanRequestReason };

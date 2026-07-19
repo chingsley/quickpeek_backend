@@ -3,10 +3,6 @@ import { Request, Response } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import config from '../../../core/config/default';
-import {
-  LOCATION_FRESHNESS_MINUTES,
-  LOCATION_ONLINE_MINUTES,
-} from '../../../common/constants/location.constants';
 import prisma from '../../../core/database/prisma/client';
 import { deviceUpdateQueue } from '../../../core/queues/deviceUpdateQueue';
 import { userLocationUpdateQueue } from '../../../core/queues/userLocationUpdateQueue';
@@ -14,13 +10,17 @@ import {
   errCodeConstants,
   PRISMA_UNIQUE_CONSTRAINT_VIOLATION_CODE
 } from './../../../common/constants/index';
-import { getUserRating, getUserRatingByRole } from '../../../common/utils/ratings';
+import { getUserRatingByRole } from '../../../common/utils/ratings';
 import { uploadProfileImage } from '../../../core/config/cloudinary';
-
 
 const JWT_SECRET = config.jwtSecret!;
 const JWT_EXPIRES_IN = config.jwtExpiresIn!;
 const BCRYPT_SALT_ROUND = config.bcryptSaltRound!;
+
+const formatRating = (r: { averageRating: number; reviewsCount: number }) => ({
+  averageRating: r.averageRating,
+  reviewsCount: r.reviewsCount,
+});
 
 export const registerUser = async (req: Request, res: Response) => {
   try {
@@ -43,7 +43,6 @@ export const registerUser = async (req: Request, res: Response) => {
   } catch (error: any) {
     let errCode = errCodeConstants.SERVER.UNKNOWN_ERROR;
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
-      // Handle unique constraint violation (P2002)
       if (error.code === PRISMA_UNIQUE_CONSTRAINT_VIOLATION_CODE) {
         const uniqueField = error.meta?.target as string[];
 
@@ -104,8 +103,6 @@ export const loginUser = async (req: Request, res: Response) => {
 export const updateUserLocation = async (req: Request, res: Response) => {
   try {
     const { longitude, latitude } = req.body;
-    // implemented asynchronously using bull by publishing it to a queue
-    // this is because this endpoint will potentially be called by many users every 5 minutes
     await userLocationUpdateQueue.add({
       userId: req.user!.userId,
       longitude,
@@ -123,8 +120,7 @@ export const updateUserLocation = async (req: Request, res: Response) => {
 
 /**
  * GET /api/v1/users
- * Returns the authenticated user's profile, including their average rating
- * (read-through cache), answers count, and questions-answered count.
+ * Authenticated user's profile with role-scoped ratings.
  */
 export const getUserProfile = async (req: Request, res: Response) => {
   try {
@@ -140,20 +136,18 @@ export const getUserProfile = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const rating = await getUserRating(userId);
-    const answersCount = await prisma.answer.count({ where: { userId } });
+    const [asResponder, asQuestioner] = await Promise.all([
+      getUserRatingByRole(userId, RatingRole.AS_RESPONDER),
+      getUserRatingByRole(userId, RatingRole.AS_QUESTIONER),
+    ]);
 
     const { password, ...safeUser } = user;
     return res.status(200).json({
       message: 'Successful',
       data: {
         ...safeUser,
-        rating: {
-          averageRating: rating.averageRating,
-          totalRating: rating.totalRating,
-          answersCount: rating.answersCount,
-        },
-        answersCount,
+        asResponder: formatRating(asResponder),
+        asQuestioner: formatRating(asQuestioner),
       },
     });
   } catch (error) {
@@ -165,9 +159,7 @@ export const getUserProfile = async (req: Request, res: Response) => {
 /**
  * PUT /api/v1/users
  * Updates editable profile fields (name, username, notificationsEnabled,
- * locationSharingEnabled, deviceToken). Password/email changes are intentionally
- * out of scope here. Invalidates the user-rating cache is not needed because
- * ratings are not edited here.
+ * locationSharingEnabled, deviceToken, profileImageUrl).
  */
 export const updateUserProfile = async (req: Request, res: Response) => {
   try {
@@ -189,18 +181,18 @@ export const updateUserProfile = async (req: Request, res: Response) => {
       },
     });
 
-    const rating = await getUserRating(userId);
+    const [asResponder, asQuestioner] = await Promise.all([
+      getUserRatingByRole(userId, RatingRole.AS_RESPONDER),
+      getUserRatingByRole(userId, RatingRole.AS_QUESTIONER),
+    ]);
     const { password, ...safeUser } = updated;
 
     return res.status(200).json({
       message: 'Profile updated successfully',
       data: {
         ...safeUser,
-        rating: {
-          averageRating: rating.averageRating,
-          totalRating: rating.totalRating,
-          answersCount: rating.answersCount,
-        },
+        asResponder: formatRating(asResponder),
+        asQuestioner: formatRating(asQuestioner),
       },
     });
   } catch (error: any) {
@@ -247,145 +239,23 @@ export const uploadUserProfileImage = async (req: Request, res: Response) => {
       },
     });
 
-    const rating = await getUserRating(userId);
+    const [asResponder, asQuestioner] = await Promise.all([
+      getUserRatingByRole(userId, RatingRole.AS_RESPONDER),
+      getUserRatingByRole(userId, RatingRole.AS_QUESTIONER),
+    ]);
     const { password, ...safeUser } = updated;
 
     return res.status(200).json({
       message: 'Profile image updated successfully',
       data: {
         ...safeUser,
-        rating: {
-          averageRating: rating.averageRating,
-          totalRating: rating.totalRating,
-          answersCount: rating.answersCount,
-        },
+        asResponder: formatRating(asResponder),
+        asQuestioner: formatRating(asQuestioner),
       },
     });
   } catch (error) {
     console.error('uploadUserProfileImage error:', error);
     return res.status(500).json({ error: 'Failed to upload profile image' });
-  }
-};
-
-export type NearbyResponderRow = {
-  userId: string;
-  username: string;
-  name: string;
-  profileImageUrl: string | null;
-  distance: number;
-  averageRating: number;
-  totalRating: number;
-  answersCount: number;
-  notificationsEnabled: boolean;
-  isOnline: boolean;
-};
-
-/**
- * GET /api/v1/users/nearby?latitude=&longitude=&sort=rating|proximity
- * Returns nearby users that the questioner can choose as a responder.
- * Excludes the requesting user. Sorted by rating desc or proximity asc.
- */
-export const getNearbyResponders = async (req: Request, res: Response) => {
-  try {
-    const userId = req.user!.userId;
-    const { latitude, longitude, sort } = req.query;
-
-    if (!latitude || !longitude) {
-      return res.status(400).json({ error: 'Latitude and Longitude required' });
-    }
-
-    const lat = parseFloat(latitude as string);
-    const lon = parseFloat(longitude as string);
-    const radiusInKm = parseFloat(process.env.RADIUS_OF_CONCERN_IN_KM || '3');
-    const limit = parseInt(process.env.NEARBY_RESPONDERS_LIMIT || '20', 10);
-    const freshnessMinutes = LOCATION_FRESHNESS_MINUTES;
-    const onlineMinutes = LOCATION_ONLINE_MINUTES;
-
-    // Raw SQL: nearby users (excluding self) within radius, joined with their
-    // rating summary and last-known location freshness.
-    const rows = await prisma.$queryRaw<
-      Array<{
-        id: string;
-        username: string;
-        name: string;
-        profileImageUrl: string | null;
-        latitude: number;
-        longitude: number;
-        distance: number;
-        totalRating: number | null;
-        answersCount: number | null;
-        notificationsEnabled: boolean;
-        locationUpdatedAt: Date | null;
-      }>
-    >`
-      SELECT
-        u.id,
-        u.username,
-        u.name,
-        u."profileImageUrl",
-        loc.latitude,
-        loc.longitude,
-        (6371 * acos(
-            cos(radians(${lat}))
-            * cos(radians(loc.latitude))
-            * cos(radians(loc.longitude) - radians(${lon}))
-            + sin(radians(${lat})) * sin(radians(loc.latitude))
-        )) AS distance,
-        COALESCE(ur."totalStars", 0) AS "totalRating",
-        COALESCE(ur."reviewsCount", 0) AS "answersCount",
-        u."notificationsEnabled",
-        loc."updatedAt" AS "locationUpdatedAt"
-      FROM users u
-      JOIN locations loc ON loc."userId" = u.id
-      LEFT JOIN user_ratings ur ON ur."userId" = u.id AND ur.role = 'AS_RESPONDER'
-      WHERE u.id <> ${userId}
-        AND u."locationSharingEnabled" = true
-        AND loc."updatedAt" > NOW() - (${freshnessMinutes} * INTERVAL '1 minute')
-        AND (6371 * acos(
-            cos(radians(${lat}))
-            * cos(radians(loc.latitude))
-            * cos(radians(loc.longitude) - radians(${lon}))
-            + sin(radians(${lat})) * sin(radians(loc.latitude))
-        )) <= ${radiusInKm}
-    `;
-
-    // Consider a user "online/active" if their location was updated very recently.
-    const now = Date.now();
-    const onlineWindowMs = onlineMinutes * 60 * 1000;
-    const responders: NearbyResponderRow[] = rows.map((r) => {
-      const totalRating = r.totalRating ?? 0;
-      const answersCount = r.answersCount ?? 0;
-      const averageRating = answersCount > 0 ? totalRating / answersCount : 0;
-      const locationUpdatedAtMs = r.locationUpdatedAt ? new Date(r.locationUpdatedAt).getTime() : 0;
-      const isOnline = now - locationUpdatedAtMs <= onlineWindowMs;
-      return {
-        userId: r.id,
-        username: r.username,
-        name: r.name,
-        profileImageUrl: r.profileImageUrl ?? null,
-        distance: Number(r.distance),
-        averageRating,
-        totalRating,
-        answersCount,
-        notificationsEnabled: r.notificationsEnabled,
-        isOnline,
-      };
-    });
-
-    if (sort === 'rating') {
-      responders.sort((a, b) => b.averageRating - a.averageRating || a.distance - b.distance);
-    } else {
-      // default: proximity
-      responders.sort((a, b) => a.distance - b.distance);
-    }
-
-    return res.status(200).json({
-      message: 'Successful',
-      data: responders.slice(0, limit),
-    });
-  } catch (error) {
-    console.error('getNearbyResponders error:', error);
-    return res.status(500).json({ error: 'Failed to fetch nearby responders' });
   }
 };
 
@@ -415,15 +285,12 @@ export const getPublicUserProfile = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const [asResponder, asQuestioner, answersCount, questionsAskedCount, reviews, reviewsTotal] =
+    const [asResponder, asQuestioner, questionsAnsweredCount, questionsAskedCount, reviews, reviewsTotal] =
       await Promise.all([
         getUserRatingByRole(id, RatingRole.AS_RESPONDER),
         getUserRatingByRole(id, RatingRole.AS_QUESTIONER),
-        prisma.question.count({
-          where: {
-            assignedResponderId: id,
-            status: 'ANSWERED',
-          },
+        prisma.answerRequest.count({
+          where: { responderId: id, status: 'ACCEPTED' },
         }),
         prisma.question.count({ where: { userId: id } }),
         prisma.review.findMany({
@@ -444,15 +311,9 @@ export const getPublicUserProfile = async (req: Request, res: Response) => {
       message: 'Successful',
       data: {
         ...user,
-        asResponder: {
-          averageRating: asResponder.averageRating,
-          reviewsCount: asResponder.reviewsCount,
-        },
-        asQuestioner: {
-          averageRating: asQuestioner.averageRating,
-          reviewsCount: asQuestioner.reviewsCount,
-        },
-        answersCount,
+        asResponder: formatRating(asResponder),
+        asQuestioner: formatRating(asQuestioner),
+        questionsAnsweredCount,
         questionsAskedCount,
         reviews: reviews.map((review) => ({
           id: review.id,

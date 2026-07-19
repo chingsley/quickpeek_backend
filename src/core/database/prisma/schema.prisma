@@ -8,52 +8,62 @@ datasource db {
 }
 
 model User {
-  id                           String         @id @default(uuid())
-  email                        String         @unique
-  password                     String
-  name                         String
-  username                     String         @unique
-  deviceType                   String
-  deviceToken                  String         // unique identifier for push notifications
-  notificationsEnabled         Boolean
-  locationSharingEnabled       Boolean
-  isVerified                   Boolean
-  profileImageUrl              String?
-  createdAt                    DateTime       @default(now())
-  updatedAt                    DateTime       @updatedAt
+  id                     String         @id @default(uuid())
+  email                  String         @unique
+  password               String
+  name                   String
+  username               String         @unique
+  deviceType             String
+  deviceToken            String
+  notificationsEnabled   Boolean
+  locationSharingEnabled Boolean
+  isVerified             Boolean
+  isAdmin                Boolean        @default(false)
+  profileImageUrl        String?
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
 
-  location                     Location?
-  questions                    Question[]     @relation("CreatedQuestions")
-  claimedQuestions             Question[]     @relation("ClaimedQuestions")
-  assignedQuestions            Question[]     @relation("AssignedQuestions")
-  answers                      Answer[]
-  messages                     Message[]
-  reviewsGiven                 Review[]       @relation("ReviewsGiven")
-  reviewsReceived              Review[]       @relation("ReviewsReceived")
-  userRatings                  UserRating[]
-  transactions                 Transaction[]
+  location         Location?
+  questions        Question[]     @relation("CreatedQuestions")
+  messages         Message[]
+  reviewsGiven     Review[]       @relation("ReviewsGiven")
+  reviewsReceived  Review[]       @relation("ReviewsReceived")
+  userRatings      UserRating[]
+  requestsMade     AnswerRequest[] @relation("RequestsByResponder")
+  requestsReceived AnswerRequest[] @relation("RequestsForQuestioner")
+  responderBlocks  QuestionResponderBlock[] @relation("ResponderBlocks")
+  transactions     Transaction[]
 
   @@map("users")
 }
 
 model Location {
-  id                  String    @id @default(uuid())
-  userId              String    @unique
-  latitude            Float
-  longitude           Float
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  latitude  Float
+  longitude Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  user                User      @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("locations")
 }
 
+model Category {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  slug      String   @unique
+  createdAt DateTime @default(now())
+
+  questions Question[]
+
+  @@map("categories")
+}
+
 enum QuestionStatus {
   OPEN
-  ASSIGNED
   ANSWERED
-  EXPIRED
   CANCELLED
 }
 
@@ -72,108 +82,145 @@ enum MessageType {
   SYSTEM
 }
 
+enum AnswerRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  CLOSED_ANSWERED
+}
+
 model Question {
-  id                      String           @id @default(uuid())
-  text                    String
-  longitude               Float
-  latitude                Float
-  address                 String
-  userId                  String
-  status                  QuestionStatus   @default(OPEN)
-  createdAt               DateTime         @default(now())
-  updatedAt               DateTime         @updatedAt
-  answeredAt              DateTime?
-  claimedByUserId         String?
-  claimedAt               DateTime?
-  assignedResponderId     String?
-  assignedAt              DateTime?
-  timeToRespondMs         Int?
-  respondByAt             DateTime?
-  expiredAt               DateTime?
+  id                  String         @id @default(uuid())
+  title               String
+  detail              String
+  categoryId          String
+  price               Float
+  acceptanceCriteria  String
+  latitude            Float?
+  longitude           Float?
+  address             String?
+  answerRadiusKm      Float?
+  userId              String
+  status              QuestionStatus @default(OPEN)
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  answeredAt          DateTime?
 
-  answers                 Answer[]
-  messages                Message[]
-  reviews                 Review[]
-  user                    User             @relation("CreatedQuestions", fields: [userId], references: [id])
-  claimedByUser           User?            @relation("ClaimedQuestions", fields: [claimedByUserId], references: [id])
-  assignedResponder       User?            @relation("AssignedQuestions", fields: [assignedResponderId], references: [id])
+  category   Category       @relation(fields: [categoryId], references: [id])
+  user       User           @relation("CreatedQuestions", fields: [userId], references: [id], onDelete: Cascade)
+  messages         Message[]
+  requests         AnswerRequest[]
+  responderBlocks  QuestionResponderBlock[]
 
+  @@index([categoryId])
+  @@index([status])
   @@map("questions")
 }
 
-model Message {
-  id          String      @id @default(uuid())
-  questionId  String
-  senderId    String
-  text        String
-  type        MessageType @default(USER)
-  createdAt   DateTime    @default(now())
-  readAt      DateTime?
+model AnswerRequest {
+  id              String             @id @default(uuid())
+  questionId      String
+  responderId     String
+  questionerId    String
+  status          AnswerRequestStatus @default(PENDING)
+  rejectionReason String?
+  createdAt       DateTime           @default(now())
+  respondedAt     DateTime?
 
-  question    Question  @relation(fields: [questionId], references: [id], onDelete: Cascade)
-  sender      User      @relation(fields: [senderId], references: [id])
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  responder  User     @relation("RequestsByResponder", fields: [responderId], references: [id], onDelete: Cascade)
+  questioner User     @relation("RequestsForQuestioner", fields: [questionerId], references: [id], onDelete: Cascade)
+  messages   Message[]
+  reviews    Review[]
+  block      QuestionResponderBlock?
+
+  @@unique([questionId, responderId])
+  @@index([questionerId, status])
+  @@index([responderId, status])
+  @@map("answer_requests")
+}
+
+model QuestionResponderBlock {
+  id              String    @id @default(uuid())
+  questionId      String
+  responderId     String
+  answerRequestId String?   @unique
+  rejectionReason String?
+  createdAt       DateTime  @default(now())
+  removedAt       DateTime?
+
+  question      Question       @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  responder     User           @relation("ResponderBlocks", fields: [responderId], references: [id], onDelete: Cascade)
+  answerRequest AnswerRequest? @relation(fields: [answerRequestId], references: [id], onDelete: SetNull)
 
   @@index([questionId])
+  @@index([questionId, responderId])
+  @@map("question_responder_blocks")
+}
+
+model Message {
+  id             String      @id @default(uuid())
+  questionId     String
+  answerRequestId String
+  senderId       String
+  text           String
+  type           MessageType @default(USER)
+  visibleToUserId String?
+  createdAt      DateTime    @default(now())
+  readAt         DateTime?
+
+  question      Question      @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  answerRequest AnswerRequest @relation(fields: [answerRequestId], references: [id], onDelete: Cascade)
+  sender        User          @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([questionId])
+  @@index([answerRequestId])
   @@map("messages")
 }
 
 model Review {
-  id          String        @id @default(uuid())
-  questionId  String
-  raterId     String
-  rateeId     String
-  raterRole   ReviewerRole
-  stars       Int
-  comment     String?
-  isRevealed  Boolean       @default(false)
-  createdAt   DateTime      @default(now())
-  revealedAt  DateTime?
+  id              String        @id @default(uuid())
+  answerRequestId String
+  raterId         String
+  rateeId         String
+  raterRole       ReviewerRole
+  stars           Int
+  comment         String?
+  isRevealed      Boolean       @default(false)
+  createdAt       DateTime      @default(now())
+  revealedAt      DateTime?
 
-  question    Question      @relation(fields: [questionId], references: [id], onDelete: Cascade)
-  rater       User          @relation("ReviewsGiven", fields: [raterId], references: [id])
-  ratee       User          @relation("ReviewsReceived", fields: [rateeId], references: [id])
+  answerRequest AnswerRequest @relation(fields: [answerRequestId], references: [id], onDelete: Cascade)
+  rater         User          @relation("ReviewsGiven", fields: [raterId], references: [id], onDelete: Cascade)
+  ratee         User          @relation("ReviewsReceived", fields: [rateeId], references: [id], onDelete: Cascade)
 
-  @@unique([questionId, raterId])
+  @@unique([answerRequestId, raterId])
   @@index([rateeId, isRevealed])
   @@map("reviews")
 }
 
-model Answer {
-  id             String          @id @default(uuid())
-  text           String
-  imageUrl       String?
-  questionId     String
-  userId         String
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-
-  question       Question        @relation(fields: [questionId], references: [id])
-  user           User            @relation(fields: [userId], references: [id])
-
-  @@map("answers")
-}
-
 model Transaction {
-  id         String        @id @default(uuid())
-  amount     Float
-  userId     String
-  createdAt  DateTime      @default(now())
-  updatedAt  DateTime      @updatedAt
-  user       User          @relation(fields: [userId], references: [id])
+  id        String   @id @default(uuid())
+  amount    Float
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("transactions")
 }
 
 model UserRating {
-  id           String      @id @default(uuid())
+  id           String     @id @default(uuid())
   userId       String
   role         RatingRole
   totalStars   Int
   reviewsCount Int
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
 
-  user         User        @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, role])
   @@map("user_ratings")

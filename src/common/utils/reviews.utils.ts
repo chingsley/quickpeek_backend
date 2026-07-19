@@ -1,4 +1,4 @@
-import { Question, QuestionStatus, ReviewerRole } from '@prisma/client';
+import { AnswerRequest, AnswerRequestStatus, Question, QuestionStatus, ReviewerRole } from '@prisma/client';
 import prisma from '../../core/database/prisma/client';
 import { RatingRole } from '@prisma/client';
 import { recomputeUserRatingAggregate } from './ratings';
@@ -12,34 +12,44 @@ export const REVIEW_REVEAL_WINDOW_DAYS = parseInt(
 
 export type ReviewUnlockReason = 'marked_answered' | 'activity_threshold' | null;
 
-export const getMessageCountsByRole = async (question: Question) => {
+type RequestWithQuestion = {
+  id: string;
+  status: AnswerRequestStatus;
+  questionerId: string;
+  responderId: string;
+  question: Pick<Question, 'id' | 'status'>;
+};
+
+const getMessageCountsByRole = async (request: RequestWithQuestion) => {
   const [questionerMsgCount, responderMsgCount] = await Promise.all([
     prisma.message.count({
-      where: { questionId: question.id, senderId: question.userId },
+      where: { answerRequestId: request.id, senderId: request.questionerId },
     }),
-    question.assignedResponderId
-      ? prisma.message.count({
-          where: { questionId: question.id, senderId: question.assignedResponderId },
-        })
-      : Promise.resolve(0),
+    prisma.message.count({
+      where: { answerRequestId: request.id, senderId: request.responderId },
+    }),
   ]);
 
   return { questionerMsgCount, responderMsgCount };
 };
 
+/**
+ * Review unlock rules (per marketplace request):
+ *   - request is ACCEPTED and question is ANSWERED, OR
+ *   - activity threshold (4 responder + 3 questioner messages) met.
+ */
 export const getReviewUnlockReason = async (
-  question: Question,
+  request: RequestWithQuestion,
 ): Promise<ReviewUnlockReason> => {
-  if (question.status === QuestionStatus.ANSWERED) {
-    return 'marked_answered';
-  }
-
-  if (!question.assignedResponderId) {
+  if (request.status !== AnswerRequestStatus.ACCEPTED) {
     return null;
   }
 
-  const { questionerMsgCount, responderMsgCount } = await getMessageCountsByRole(question);
+  if (request.question.status === QuestionStatus.ANSWERED) {
+    return 'marked_answered';
+  }
 
+  const { questionerMsgCount, responderMsgCount } = await getMessageCountsByRole(request);
   if (
     responderMsgCount >= REVIEW_ACTIVITY_RESPONDER_MIN &&
     questionerMsgCount >= REVIEW_ACTIVITY_QUESTIONER_MIN
@@ -50,15 +60,15 @@ export const getReviewUnlockReason = async (
   return null;
 };
 
-export const isReviewUnlocked = async (question: Question): Promise<boolean> => {
-  const reason = await getReviewUnlockReason(question);
+export const isReviewUnlocked = async (request: RequestWithQuestion): Promise<boolean> => {
+  const reason = await getReviewUnlockReason(request);
   return reason !== null;
 };
 
-export const revealReviewsForQuestion = async (questionId: string): Promise<void> => {
+export const revealReviewsForRequest = async (answerRequestId: string): Promise<void> => {
   const now = new Date();
   const hiddenReviews = await prisma.review.findMany({
-    where: { questionId, isRevealed: false },
+    where: { answerRequestId, isRevealed: false },
   });
 
   if (hiddenReviews.length === 0) {
@@ -66,7 +76,7 @@ export const revealReviewsForQuestion = async (questionId: string): Promise<void
   }
 
   await prisma.review.updateMany({
-    where: { questionId, isRevealed: false },
+    where: { answerRequestId, isRevealed: false },
     data: { isRevealed: true, revealedAt: now },
   });
 
@@ -86,8 +96,8 @@ export const revealReviewsForQuestion = async (questionId: string): Promise<void
   }
 };
 
-export const tryRevealMutualReviews = async (questionId: string): Promise<boolean> => {
-  const reviews = await prisma.review.findMany({ where: { questionId } });
+export const tryRevealMutualReviews = async (answerRequestId: string): Promise<boolean> => {
+  const reviews = await prisma.review.findMany({ where: { answerRequestId } });
   if (reviews.length < 2) {
     return false;
   }
@@ -99,6 +109,9 @@ export const tryRevealMutualReviews = async (questionId: string): Promise<boolea
     return false;
   }
 
-  await revealReviewsForQuestion(questionId);
+  await revealReviewsForRequest(answerRequestId);
   return true;
 };
+
+/** Keep the legacy alias alive for any callers that still expect the old name. */
+export const revealReviewsForQuestion = revealReviewsForRequest;

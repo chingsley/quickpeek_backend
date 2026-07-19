@@ -77,17 +77,3 @@ export const validateUserProfileUpdate = (req: Request, res: Response, next: Nex
   req.body = value;
   next();
 };
-
-export const validateNearbyRespondersQuery = (req: Request, res: Response, next: NextFunction) => {
-  const schema = Joi.object({
-    latitude: Joi.number().required(),
-    longitude: Joi.number().required(),
-    sort: Joi.string().valid('rating', 'proximity').default('proximity'),
-  });
-
-  const { error, value } = schema.validate(req.query);
-  if (error) return res.status(400).json({ error: error.details[0].message });
-
-  req.query = value;
-  next();
-};

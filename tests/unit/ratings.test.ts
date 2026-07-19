@@ -1,10 +1,15 @@
-import { getUserRating, computeAverage } from '../../src/common/utils/ratings';
+import { RatingRole } from '@prisma/client';
+import { computeAverage, getUserRatingByRole } from '../../src/common/utils/ratings';
 
 jest.mock('../../src/core/database/prisma/client', () => ({
   __esModule: true,
   default: {
     userRating: {
       findUnique: jest.fn(),
+      upsert: jest.fn(),
+    },
+    review: {
+      aggregate: jest.fn(),
     },
   },
 }));
@@ -39,27 +44,28 @@ describe('ratings util', () => {
   });
 
   describe('computeAverage', () => {
-    it('returns 0 when there are no answers', () => {
+    it('returns 0 when there are no reviews', () => {
       expect(computeAverage(0, 0)).toBe(0);
       expect(computeAverage(10, 0)).toBe(0);
     });
+
     it('computes the mean rating', () => {
       expect(computeAverage(9, 3)).toBe(3);
       expect(computeAverage(13, 4)).toBe(3.25);
     });
   });
 
-  describe('getUserRating', () => {
+  describe('getUserRatingByRole', () => {
     it('returns from cache when present (no DB hit)', async () => {
       (redisClient.get as jest.Mock).mockResolvedValueOnce(
-        JSON.stringify({ totalRating: 8, answersCount: 2 }),
+        JSON.stringify({ totalStars: 8, reviewsCount: 2 }),
       );
 
-      const result = await getUserRating('user-1');
+      const result = await getUserRatingByRole('user-1', RatingRole.AS_RESPONDER);
 
       expect(result.source).toBe('cache');
-      expect(result.totalRating).toBe(8);
-      expect(result.answersCount).toBe(2);
+      expect(result.totalStars).toBe(8);
+      expect(result.reviewsCount).toBe(2);
       expect(result.averageRating).toBe(4);
       expect(prisma.userRating.findUnique).not.toHaveBeenCalled();
     });
@@ -68,20 +74,23 @@ describe('ratings util', () => {
       (redisClient.get as jest.Mock).mockResolvedValueOnce(null);
       (prisma.userRating.findUnique as jest.Mock).mockResolvedValueOnce({
         userId: 'user-2',
-        totalRating: 15,
-        answersCount: 5,
+        role: RatingRole.AS_RESPONDER,
+        totalStars: 15,
+        reviewsCount: 5,
       });
 
-      const result = await getUserRating('user-2');
+      const result = await getUserRatingByRole('user-2', RatingRole.AS_RESPONDER);
 
       expect(result.source).toBe('db');
-      expect(result.totalRating).toBe(15);
-      expect(result.answersCount).toBe(5);
+      expect(result.totalStars).toBe(15);
+      expect(result.reviewsCount).toBe(5);
       expect(result.averageRating).toBe(3);
-      expect(prisma.userRating.findUnique).toHaveBeenCalledWith({ where: { userId: 'user-2' } });
+      expect(prisma.userRating.findUnique).toHaveBeenCalledWith({
+        where: { userId_role: { userId: 'user-2', role: RatingRole.AS_RESPONDER } },
+      });
       expect(redisClient.set).toHaveBeenCalledWith(
-        'userRating:user-2',
-        JSON.stringify({ totalRating: 15, answersCount: 5 }),
+        'userRating:user-2:AS_RESPONDER',
+        JSON.stringify({ totalStars: 15, reviewsCount: 5 }),
         'EX',
         60 * 60,
       );
@@ -91,11 +100,11 @@ describe('ratings util', () => {
       (redisClient.get as jest.Mock).mockResolvedValueOnce(null);
       (prisma.userRating.findUnique as jest.Mock).mockResolvedValueOnce(null);
 
-      const result = await getUserRating('user-3');
+      const result = await getUserRatingByRole('user-3', RatingRole.AS_QUESTIONER);
 
       expect(result.source).toBe('db');
-      expect(result.totalRating).toBe(0);
-      expect(result.answersCount).toBe(0);
+      expect(result.totalStars).toBe(0);
+      expect(result.reviewsCount).toBe(0);
       expect(result.averageRating).toBe(0);
     });
 
@@ -103,11 +112,12 @@ describe('ratings util', () => {
       (redisClient.get as jest.Mock).mockRejectedValueOnce(new Error('redis down'));
       (prisma.userRating.findUnique as jest.Mock).mockResolvedValueOnce({
         userId: 'user-4',
-        totalRating: 4,
-        answersCount: 1,
+        role: RatingRole.AS_RESPONDER,
+        totalStars: 4,
+        reviewsCount: 1,
       });
 
-      const result = await getUserRating('user-4');
+      const result = await getUserRatingByRole('user-4', RatingRole.AS_RESPONDER);
 
       expect(result.source).toBe('db');
       expect(result.averageRating).toBe(4);

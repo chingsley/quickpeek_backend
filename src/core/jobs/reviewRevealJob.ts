@@ -1,6 +1,6 @@
 import { Job } from 'bull';
 import prisma from '../database/prisma/client';
-import { revealReviewsForQuestion, REVIEW_REVEAL_WINDOW_DAYS } from '../../common/utils/reviews.utils';
+import { revealReviewsForRequest, REVIEW_REVEAL_WINDOW_DAYS } from '../../common/utils/reviews.utils';
 
 const processReviewReveal = async (_job: Job) => {
   try {
@@ -11,16 +11,16 @@ const processReviewReveal = async (_job: Job) => {
         isRevealed: false,
         createdAt: { lte: cutoff },
       },
-      select: { questionId: true },
-      distinct: ['questionId'],
+      select: { answerRequestId: true },
+      distinct: ['answerRequestId'],
     });
 
     for (const row of staleReviews) {
-      await revealReviewsForQuestion(row.questionId);
+      await revealReviewsForRequest(row.answerRequestId);
     }
 
     if (staleReviews.length > 0) {
-      console.log(`Revealed reviews for ${staleReviews.length} question(s)`);
+      console.log(`Revealed reviews for ${staleReviews.length} request(s)`);
     }
   } catch (error) {
     console.error('processReviewReveal failed', error);

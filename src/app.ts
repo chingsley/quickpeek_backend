@@ -4,6 +4,8 @@ import { loggingMiddleware } from './api/middlewares/logging.middleware';
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import questionRoutes from './modules/questions/routes/questionRoutes';
+import categoryRoutes from './modules/categories/routes/categoryRoutes';
+import requestRoutes from './modules/requests/routes/requestRoutes';
 import healthRoutes from './api/routes/healthRoute';
 import userRoutes from './modules/users/routes/userRoutes';
 
@@ -19,6 +21,8 @@ app.use(loggingMiddleware);
 
 app.use('/api/v1/health', healthRoutes);
 app.use('/api/v1/questions', questionRoutes);
+app.use('/api/v1/categories', categoryRoutes);
+app.use('/api/v1/requests', requestRoutes);
 app.use('/api/v1/users', userRoutes);
 app.use((error: Error, req: Request, res: Response, next: NextFunction) => {
   if (error) {

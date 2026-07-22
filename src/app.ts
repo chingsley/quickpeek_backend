@@ -11,12 +11,20 @@ import userRoutes from './modules/users/routes/userRoutes';
 
 const app = express();
 
+// Disable ETag so mobile clients don't get 304 responses with empty bodies.
+app.set('etag', false);
+
 // Required when requests arrive via a proxy (e.g. Expo tunnel) so
 // express-rate-limit can safely read X-Forwarded-For.
 app.set('trust proxy', 1);
 
 app.use(express.json());
 app.use(cors());
+app.use((req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.set('Pragma', 'no-cache');
+  next();
+});
 app.use(loggingMiddleware);
 
 app.use('/api/v1/health', healthRoutes);

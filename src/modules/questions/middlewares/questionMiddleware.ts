@@ -5,6 +5,8 @@ import prisma from '../../../core/database/prisma/client';
 const LATITUDE = Joi.number().min(-90).max(90).precision(14);
 const LONGITUDE = Joi.number().min(-180).max(180).precision(14);
 
+const DEFAULT_CATEGORY_SLUG = 'other';
+
 /**
  * Validates the new marketplace question payload.
  * Location fields are optional; if `latitude`/`longitude` are present,
@@ -18,7 +20,6 @@ export const validateQuestionCreation = async (
   const schema = Joi.object({
     title: Joi.string().trim().min(5).max(120).required(),
     detail: Joi.string().trim().min(10).max(2000).required(),
-    categoryId: Joi.string().required(),
     price: Joi.number().min(0).max(10000).required(),
     acceptanceCriteria: Joi.string().trim().min(5).max(1000).required(),
     latitude: LATITUDE.optional().allow(null),
@@ -50,15 +51,15 @@ export const validateQuestionCreation = async (
     });
   }
 
-  // Category must exist.
-  const category = await prisma.category.findUnique({
-    where: { id: value.categoryId },
+  // Assign default category while category selection is deferred in the UI.
+  const defaultCategory = await prisma.category.findUnique({
+    where: { slug: DEFAULT_CATEGORY_SLUG },
     select: { id: true },
   });
-  if (!category) {
-    return res.status(400).json({ error: 'Unknown category' });
+  if (!defaultCategory) {
+    return res.status(500).json({ error: 'Default category is not configured' });
   }
 
-  req.body = value;
+  req.body = { ...value, categoryId: defaultCategory.id };
   next();
 };

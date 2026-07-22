@@ -21,9 +21,9 @@ const createCategory = async (slug = 'location') =>
   });
 
 describe('questions marketplace', () => {
-  let questioner: { id: string; token: string };
-  let responder: { id: string; token: string };
-  let farAwayResponder: { id: string; token: string };
+  let questioner: { id: string; token: string; };
+  let responder: { id: string; token: string; };
+  let farAwayResponder: { id: string; token: string; };
   let categoryId: string;
 
   beforeAll(async () => {
@@ -44,6 +44,7 @@ describe('questions marketplace', () => {
     farAwayResponder = { id: far.id, token: far.token };
     const category = await createCategory();
     categoryId = category.id;
+    await createCategory('other');
   });
 
   afterAll(async () => {
@@ -55,7 +56,7 @@ describe('questions marketplace', () => {
       const res = await request(app)
         .post('/api/v1/questions')
         .set('Authorization', `Bearer ${questioner.token}`)
-        .send(buildQuestionPayload({ categoryId }));
+        .send(buildQuestionPayload());
 
       expect(res.status).toBe(201);
       expect(res.body.data).toMatchObject({
@@ -66,7 +67,7 @@ describe('questions marketplace', () => {
         longitude: null,
         address: null,
       });
-      expect(res.body.data.category).toMatchObject({ id: categoryId, slug: 'location' });
+      expect(res.body.data.category).toMatchObject({ slug: 'other' });
     });
 
     it('creates a question with location + radius', async () => {
@@ -75,7 +76,6 @@ describe('questions marketplace', () => {
         .set('Authorization', `Bearer ${questioner.token}`)
         .send(
           buildQuestionPayload({
-            categoryId,
             latitude: 44.6126,
             longitude: -63.6192,
             address: '1 Spring Garden Rd, Halifax, NS',
@@ -93,7 +93,7 @@ describe('questions marketplace', () => {
     });
 
     it('requires authentication', async () => {
-      const res = await request(app).post('/api/v1/questions').send(buildQuestionPayload({ categoryId }));
+      const res = await request(app).post('/api/v1/questions').send(buildQuestionPayload());
       expect(res.status).toBe(401);
     });
 
@@ -106,23 +106,12 @@ describe('questions marketplace', () => {
       expect(res.status).toBe(400);
     });
 
-    it('rejects unknown category', async () => {
-      const res = await request(app)
-        .post('/api/v1/questions')
-        .set('Authorization', `Bearer ${questioner.token}`)
-        .send(buildQuestionPayload({ categoryId: 'nope' }));
-
-      expect(res.status).toBe(400);
-      expect(res.body.error).toMatch(/category/i);
-    });
-
     it('rejects partial location (missing address)', async () => {
       const res = await request(app)
         .post('/api/v1/questions')
         .set('Authorization', `Bearer ${questioner.token}`)
         .send(
           buildQuestionPayload({
-            categoryId,
             latitude: 44.6,
             longitude: -63.6,
           }),
@@ -195,24 +184,6 @@ describe('questions marketplace', () => {
       expect(res.body.data.pagination.hasMore).toBe(true);
     });
 
-    it('filters by categoryId', async () => {
-      const other = await createCategory('other-cat');
-      await prisma.question.create({
-        data: {
-          title: 'Other Cat Open',
-          detail: 'detail',
-          categoryId: other.id,
-          price: 1,
-          acceptanceCriteria: 'criteria',
-          userId: questioner.id,
-        },
-      });
-
-      const res = await request(app).get(`/api/v1/questions/feed?categoryId=${categoryId}`);
-      const titles = res.body.data.items.map((q: any) => q.title);
-      expect(titles).not.toContain('Other Cat Open');
-    });
-
     it('computes distanceKm + nearMe when viewer coords supplied', async () => {
       const close = await prisma.question.create({
         data: {
@@ -259,7 +230,7 @@ describe('questions marketplace', () => {
   });
 
   describe('GET /api/v1/questions/feed (sectioned for authenticated viewers)', () => {
-    let feedResponder: { id: string; token: string };
+    let feedResponder: { id: string; token: string; };
     let pendingQuestionId: string;
     let approvedQuestionId: string;
     let answeredQuestionId: string;
@@ -388,25 +359,28 @@ describe('questions marketplace', () => {
           'approved',
           'answered_by_you',
           'rejected',
-          'near_you',
-          'new',
+          'others',
         ]),
       );
       expect(itemsIn(res, 'pending')).toContain('Pending Section Q');
       expect(itemsIn(res, 'approved')).toContain('Approved Section Q');
       expect(itemsIn(res, 'answered_by_you')).toContain('Answered Section Q');
       expect(itemsIn(res, 'rejected')).toContain('Rejected Section Q');
-      expect(itemsIn(res, 'near_you')).toContain('Fresh Section Q');
-      expect(itemsIn(res, 'new')).toContain('New Section Q');
+      expect(itemsIn(res, 'others')).toContain('Fresh Section Q');
+      expect(itemsIn(res, 'others')).toContain('New Section Q');
     });
 
-    it('uses stored viewer location for near_you when coords are omitted', async () => {
+    it('flags geographically close questions with nearMe when coords are inferred from saved location', async () => {
       const res = await request(app)
         .get('/api/v1/questions/feed')
         .set('Authorization', `Bearer ${feedResponder.token}`);
 
       expect(res.status).toBe(200);
-      expect(itemsIn(res, 'near_you')).toContain('Fresh Section Q');
+      const fresh = res.body.data.sections
+        .flatMap((s: any) => s.items)
+        .find((q: any) => q.title === 'Fresh Section Q');
+      expect(fresh).toBeTruthy();
+      expect(fresh.nearMe).toBe(true);
     });
 
     it('returns awaiting_your_approval for questioner incoming pending requests', async () => {
@@ -443,6 +417,52 @@ describe('questions marketplace', () => {
         status: 'PENDING',
         responder: { id: feedResponder.id },
       });
+      expect(item.pendingApprovalCount).toBe(1);
+    });
+
+    it('groups multiple pending requests into one awaiting_your_approval card per question', async () => {
+      const incomingQ = await prisma.question.create({
+        data: {
+          title: 'Grouped Approval Q',
+          detail: 'detail body',
+          categoryId,
+          price: 5,
+          acceptanceCriteria: 'criteria',
+          userId: questioner.id,
+          status: QuestionStatus.OPEN,
+        },
+      });
+      const secondResponder = await createAuthUser({
+        email: 'grouped-responder@quickpeek.com',
+        username: 'grouped_r',
+      });
+      await prisma.answerRequest.createMany({
+        data: [
+          {
+            questionId: incomingQ.id,
+            responderId: feedResponder.id,
+            questionerId: questioner.id,
+            status: 'PENDING',
+          },
+          {
+            questionId: incomingQ.id,
+            responderId: secondResponder.id,
+            questionerId: questioner.id,
+            status: 'PENDING',
+          },
+        ],
+      });
+
+      const res = await request(app)
+        .get('/api/v1/questions/feed')
+        .set('Authorization', `Bearer ${questioner.token}`);
+
+      expect(res.status).toBe(200);
+      const awaitingItems = res.body.data.sections
+        .find((s: any) => s.key === 'awaiting_your_approval')
+        ?.items.filter((q: any) => q.title === 'Grouped Approval Q');
+      expect(awaitingItems).toHaveLength(1);
+      expect(awaitingItems[0].pendingApprovalCount).toBe(2);
     });
 
     it('excludes ANSWERED questions from all sections', async () => {

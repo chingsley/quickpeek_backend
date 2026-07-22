@@ -110,7 +110,7 @@ async function createSystemMessage(opts: {
 async function createIncomingPendingRequest(opts: {
   questionId: string;
   questionerId: string;
-  responder: { id: string; username: string };
+  responder: { id: string; username: string; };
 }) {
   const request = await prisma.answerRequest.create({
     data: {
@@ -154,7 +154,7 @@ async function seed() {
 
   console.log('Creating users…');
   const passwordHash = await bcrypt.hash('password123', 10);
-  const users: { id: string; email: string; name: string; username: string }[] = [];
+  const users: { id: string; email: string; name: string; username: string; }[] = [];
 
   for (let i = 0; i < USER_DEFS.length; i++) {
     const def = USER_DEFS[i];
@@ -187,7 +187,7 @@ async function seed() {
   const test03 = users[3];
 
   console.log('\nCreating categories…');
-  const categories: Record<string, { id: string; name: string; slug: string }> = {};
+  const categories: Record<string, { id: string; name: string; slug: string; }> = {};
   for (const def of CATEGORY_DEFS) {
     const category = await prisma.category.create({ data: def });
     categories[def.slug] = category;
@@ -243,7 +243,7 @@ async function seed() {
     },
   ];
 
-  const outboxQuestions: { id: string; title: string }[] = [];
+  const outboxQuestions: { id: string; title: string; }[] = [];
 
   for (const qdef of outboxDefs) {
     const category = categories[qdef.categorySlug];
@@ -277,10 +277,13 @@ async function seed() {
 
   // Requests on test03's first OPEN question (driving lesson)
   const drivingQuestion = outboxQuestions[0];
+  const drivingPendingResponders = [users[0], users[1], users[2]];
+  const drivingAcceptedResponders = [users[4], users[5], users[6]];
+  const drivingRejectedResponders = [users[7], users[8], users[9]];
   const requesterDefs = [
-    { user: users[0], status: AnswerRequestStatus.PENDING },
-    { user: users[1], status: AnswerRequestStatus.ACCEPTED },
-    { user: users[2], status: AnswerRequestStatus.REJECTED },
+    ...drivingPendingResponders.map((user) => ({ user, status: AnswerRequestStatus.PENDING })),
+    ...drivingAcceptedResponders.map((user) => ({ user, status: AnswerRequestStatus.ACCEPTED })),
+    ...drivingRejectedResponders.map((user) => ({ user, status: AnswerRequestStatus.REJECTED })),
   ];
 
   for (const rdef of requesterDefs) {
@@ -318,7 +321,15 @@ async function seed() {
         questionId: drivingQuestion.id,
         answerRequestId: request.id,
         senderId: test03.id,
-        text: 'Request accepted.',
+        text: `You approved @${rdef.user.username} to respond`,
+        visibleToUserId: test03.id,
+      });
+      await createSystemMessage({
+        questionId: drivingQuestion.id,
+        answerRequestId: request.id,
+        senderId: test03.id,
+        text: 'Request accepted. Send your response.',
+        visibleToUserId: rdef.user.id,
       });
 
       const drivingQ = await prisma.question.findUnique({ where: { id: drivingQuestion.id } });
@@ -385,10 +396,12 @@ async function seed() {
     responder: (typeof users)[number];
     label: string;
   }> = [
-    { questionId: drivingQuestion.id, responder: users[0], label: 'Driving lesson (Alice Morgan)' },
-    { questionId: scotiaQuestion.id, responder: users[4], label: 'Scotia branch (Elena Rossi)' },
-    { questionId: faucetQuestion.id, responder: users[5], label: 'Leaky faucet (Felix Nguyen)' },
-  ];
+      { questionId: drivingQuestion.id, responder: users[0], label: 'Driving lesson pending (Alice Morgan)' },
+      { questionId: drivingQuestion.id, responder: users[1], label: 'Driving lesson pending (Bob Chen)' },
+      { questionId: drivingQuestion.id, responder: users[2], label: 'Driving lesson pending (Carla Diaz)' },
+      { questionId: scotiaQuestion.id, responder: users[4], label: 'Scotia branch (Elena Rossi)' },
+      { questionId: faucetQuestion.id, responder: users[5], label: 'Leaky faucet (Felix Nguyen)' },
+    ];
 
   const extraAwaitingApprovalDefs = [
     {
@@ -466,16 +479,14 @@ async function seed() {
   const nextQuestioner = () => otherUsers[questionerRotator++ % otherUsers.length];
 
   type FeedSectionKey =
-    | 'near_you'
-    | 'new'
+    | 'others'
     | 'pending'
     | 'approved'
     | 'answered_by_you'
     | 'rejected';
 
   const sectionCounts: Record<FeedSectionKey, number> = {
-    near_you: 0,
-    new: 0,
+    others: 0,
     pending: 0,
     approved: 0,
     answered_by_you: 0,
@@ -810,7 +821,7 @@ async function seed() {
   ) {
     const questioner = nextQuestioner();
     const category = categories[def.categorySlug];
-    const useLocation = section !== 'new';
+    const useLocation = nearTest03 || section !== 'others';
     const address = useLocation ? ADDRESSES[sectionCounts[section] % ADDRESSES.length] : null;
     const longitude = useLocation
       ? nearTest03
@@ -887,7 +898,15 @@ async function seed() {
         questionId: q.id,
         answerRequestId: request.id,
         senderId: questioner.id,
-        text: 'Request accepted.',
+        text: `You approved @${test03.username} to respond`,
+        visibleToUserId: questioner.id,
+      });
+      await createSystemMessage({
+        questionId: q.id,
+        answerRequestId: request.id,
+        senderId: questioner.id,
+        text: 'Request accepted. Send your response.',
+        visibleToUserId: test03.id,
       });
 
       await createAcceptanceBriefingMessages({
@@ -948,10 +967,10 @@ async function seed() {
   }
 
   for (const def of nearYouDefs) {
-    await createFeedQuestion(def, 'near_you', true);
+    await createFeedQuestion(def, 'others', true);
   }
   for (const def of newDefs) {
-    await createFeedQuestion(def, 'new', false);
+    await createFeedQuestion(def, 'others', false);
   }
   for (const def of pendingDefs) {
     await createFeedQuestion(def, 'pending', true);
@@ -990,7 +1009,15 @@ async function seed() {
       questionId: pancakeQuestion.id,
       answerRequestId: request.id,
       senderId: test03.id,
-      text: 'Request accepted.',
+      text: `You approved @${acceptedResponder.username} to respond`,
+      visibleToUserId: test03.id,
+    });
+    await createSystemMessage({
+      questionId: pancakeQuestion.id,
+      answerRequestId: request.id,
+      senderId: test03.id,
+      text: 'Request accepted. Send your response.',
+      visibleToUserId: acceptedResponder.id,
     });
     await prisma.message.create({
       data: {
@@ -1030,7 +1057,7 @@ async function seed() {
 
   console.log('\nComputing user rating aggregates…');
   const revealedReviews = await prisma.review.findMany({ where: { isRevealed: true } });
-  const aggregateMap: Record<string, Record<RatingRole, { totalStars: number; reviewsCount: number }>> = {};
+  const aggregateMap: Record<string, Record<RatingRole, { totalStars: number; reviewsCount: number; }>> = {};
 
   for (const review of revealedReviews) {
     const role =
@@ -1066,7 +1093,7 @@ async function seed() {
 
   console.log('\n✅ Seed complete!');
   console.log(`   Login: ${test03.email} / password: password123`);
-  console.log('   Home feed (test03): Awaiting your approval, Near you, New, Waiting for reply, Approved, Answered by you, Rejected');
+  console.log('   Home feed (test03): Awaiting your approval, Others, Waiting for reply, Approved, Answered by you, Rejected');
   console.log('   Briefing test: open Approved chats, or accept a request in Awaiting your approval');
 }
 

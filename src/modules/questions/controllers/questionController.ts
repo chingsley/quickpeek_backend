@@ -23,7 +23,7 @@ import {
   FeedSectionKey,
   getActiveBlock,
   loadViewerRequestMap,
-  loadAwaitingApprovalFeedItems,
+  buildAwaitingApprovalFeedQuestions,
   ViewerRequestSummary,
 } from '../../../common/utils/requestViewer.utils';
 
@@ -115,19 +115,19 @@ export const createQuestion = async (req: AuthedRequest, res: Response) => {
  * GET /questions/feed — public feed of OPEN questions.
  * Authenticated viewers receive sectioned feed with interaction state.
  * Filters:
- *   ?categoryId=         restrict to category
  *   ?lat=&lng=           viewer coords (enables distance + nearMe flag)
  *   ?radiusKm=           restrict to within radius of viewer
+ *   ?nearMe=true         restrict to questions whose own answerRadiusKm contains the viewer
  *   ?page=&limit=        pagination (flat feed only)
  */
 export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
   try {
     const viewerId = req.user?.userId;
     const { page, limit, skip } = parsePagination(req.query);
-    const categoryId = typeof req.query.categoryId === 'string' ? req.query.categoryId : undefined;
     const lat = req.query.lat != null ? parseFloat(String(req.query.lat)) : NaN;
     const lng = req.query.lng != null ? parseFloat(String(req.query.lng)) : NaN;
     const radiusKm = req.query.radiusKm != null ? parseFloat(String(req.query.radiusKm)) : NaN;
+    const filterByNearMe = String(req.query.nearMe ?? '').toLowerCase() === 'true';
     const clientPassedCoords = !Number.isNaN(lat) && !Number.isNaN(lng);
     let effectiveLat = lat;
     let effectiveLng = lng;
@@ -148,7 +148,7 @@ export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
     const useRadiusFilter =
       clientPassedCoords && !Number.isNaN(radiusKm) && radiusKm > 0;
 
-    if (!viewerId && !categoryId && !viewerHasCoords && page === 1) {
+    if (!viewerId && !viewerHasCoords && page === 1) {
       const key = `feed:open:p1:limit${limit}`;
       const cached = await getCachedNearbyQuestions<any>(key);
       if (cached) {
@@ -158,7 +158,6 @@ export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
 
     const where: Prisma.QuestionWhereInput = {
       status: QuestionStatus.OPEN,
-      ...(categoryId ? { categoryId } : {}),
       ...(viewerId ? { userId: { not: viewerId } } : {}),
     };
 
@@ -205,13 +204,11 @@ export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
         item.sectionKey = assignFeedSection({
           viewerRequest,
           isBlocked: viewerRequest.isBlocked,
-          nearMe,
         });
       } else if (viewerId) {
         item.sectionKey = assignFeedSection({
           viewerRequest: null,
           isBlocked: false,
-          nearMe,
         });
       }
 
@@ -223,29 +220,26 @@ export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
           if (q.viewerRequest) return true;
           return q.distanceKm != null && q.distanceKm <= radiusKm;
         })
-      : enriched;
+      : filterByNearMe
+        ? enriched.filter((q: any) => q.nearMe === true)
+        : enriched;
 
     if (viewerId) {
       const buckets = new Map<FeedSectionKey, any[]>(
         FEED_SECTION_ORDER.map((key) => [key, []]),
       );
       for (const item of visible) {
-        const key = (item.sectionKey as FeedSectionKey) ?? 'new';
+        const key = (item.sectionKey as FeedSectionKey) ?? 'others';
         buckets.get(key)?.push(item);
       }
 
-      const awaitingApproval = await loadAwaitingApprovalFeedItems(viewerId);
-      for (const { request, unreadCount } of awaitingApproval) {
-        const q = request.question;
+      const awaitingApproval = await buildAwaitingApprovalFeedQuestions(viewerId);
+      for (const { question: q, pendingApprovalCount, incomingRequest } of awaitingApproval) {
         buckets.get('awaiting_your_approval')?.push({
           ...publicQuestionShape(q),
           userId: q.userId,
-          incomingRequest: {
-            id: request.id,
-            status: request.status,
-            unreadCount,
-            responder: request.responder,
-          },
+          pendingApprovalCount,
+          incomingRequest,
           sectionKey: 'awaiting_your_approval',
         });
       }
@@ -254,7 +248,7 @@ export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
         key,
         title: FEED_SECTION_TITLES[key],
         items: buckets.get(key) ?? [],
-      })).filter((section) => section.items.length > 0);
+      }));
 
       return res.status(200).json({
         message: 'Successful',
@@ -273,7 +267,7 @@ export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
       },
     };
 
-    if (!categoryId && !viewerHasCoords && page === 1) {
+    if (!viewerHasCoords && page === 1) {
       const key = `feed:open:p1:limit${limit}`;
       await setCachedNearbyQuestions(key, response).catch(() => {});
     }
@@ -282,6 +276,164 @@ export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
   } catch (error) {
     console.error('getQuestionFeed error:', error);
     return res.status(500).json({ error: 'Failed to fetch question feed' });
+  }
+};
+
+const MAX_SEARCH_RESULTS = 30;
+const MIN_QUERY_LENGTH = 2;
+
+type RawSearchHit = {
+  id: string;
+  title: string;
+  detail: string;
+  acceptanceCriteria: string;
+  price: number;
+  latitude: number | null;
+  longitude: number | null;
+  address: string | null;
+  answerRadiusKm: number | null;
+  status: QuestionStatus;
+  createdAt: Date;
+  answeredAt: Date | null;
+  categoryId: string;
+  userId: string;
+  questionerName: string;
+  questionerUsername: string;
+  questionerProfileImageUrl: string | null;
+  categoryName: string;
+  categorySlug: string;
+  similarity: number;
+};
+
+/**
+ * GET /questions/search?q=
+ * Fuzzy, status-agnostic search across question title/detail/acceptanceCriteria/address
+ * AND the questioner's name/username/email. Uses Postgres pg_trgm similarity()
+ * so mild typos still match. Results are ranked by trigram similarity (desc).
+ *
+ * Auth is optional: authenticated viewers get viewerRequest enrichment per item,
+ * mirroring the shape returned by /questions/feed.
+ */
+export const searchQuestions = async (req: AuthedRequest, res: Response) => {
+  try {
+    const viewerId = req.user?.userId;
+    const rawQuery = String(req.query.q ?? '').trim();
+
+    if (rawQuery.length < MIN_QUERY_LENGTH) {
+      return res.status(200).json({
+        message: 'Successful',
+        data: { items: [] as any[], query: rawQuery },
+      });
+    }
+
+    // Lower the similarity threshold so mild typos still qualify.
+    // Must be in the same statement as the search — SET LOCAL in a separate
+    // prisma call does not apply to the follow-up queryRaw.
+    const hits = await prisma.$queryRaw<RawSearchHit[]>`
+      WITH ranked AS (
+        SELECT
+          q.*,
+          c.name  AS "categoryName",
+          c.slug  AS "categorySlug",
+          u.name  AS "questionerName",
+          u.username AS "questionerUsername",
+          u."profileImageUrl" AS "questionerProfileImageUrl",
+          GREATEST(
+            similarity(q.title,              ${rawQuery}),
+            similarity(q.detail,             ${rawQuery}),
+            similarity(q."acceptanceCriteria", ${rawQuery}),
+            similarity(q.address,            ${rawQuery}),
+            similarity(u.name,               ${rawQuery}),
+            similarity(u.username,           ${rawQuery}),
+            similarity(u.email,              ${rawQuery})
+          ) AS similarity
+        FROM "questions" q
+        JOIN "users" u      ON u.id = q."userId"
+        JOIN "categories" c ON c.id = q."categoryId"
+        WHERE
+             similarity(q.title,                ${rawQuery}) >= 0.1
+          OR similarity(q.detail,               ${rawQuery}) >= 0.1
+          OR similarity(q."acceptanceCriteria",  ${rawQuery}) >= 0.1
+          OR similarity(q.address,              ${rawQuery}) >= 0.1
+          OR similarity(u.name,                 ${rawQuery}) >= 0.1
+          OR similarity(u.username,             ${rawQuery}) >= 0.1
+          OR similarity(u.email,                ${rawQuery}) >= 0.1
+          OR q.title               ILIKE '%' || ${rawQuery} || '%'
+          OR q.detail              ILIKE '%' || ${rawQuery} || '%'
+          OR q."acceptanceCriteria" ILIKE '%' || ${rawQuery} || '%'
+          OR q.address             ILIKE '%' || ${rawQuery} || '%'
+          OR u.name                ILIKE '%' || ${rawQuery} || '%'
+          OR u.username            ILIKE '%' || ${rawQuery} || '%'
+          OR u.email               ILIKE '%' || ${rawQuery} || '%'
+      )
+      SELECT * FROM ranked
+      WHERE similarity >= 0.1
+         OR title               ILIKE '%' || ${rawQuery} || '%'
+         OR detail              ILIKE '%' || ${rawQuery} || '%'
+         OR "acceptanceCriteria" ILIKE '%' || ${rawQuery} || '%'
+         OR address             ILIKE '%' || ${rawQuery} || '%'
+         OR "questionerName"    ILIKE '%' || ${rawQuery} || '%'
+         OR "questionerUsername" ILIKE '%' || ${rawQuery} || '%'
+      ORDER BY similarity DESC, "createdAt" DESC
+      LIMIT ${MAX_SEARCH_RESULTS};
+    `;
+
+    if (hits.length === 0) {
+      return res.status(200).json({
+        message: 'Successful',
+        data: { items: [] as any[], query: rawQuery },
+      });
+    }
+
+    const questionIds = hits.map((h) => h.id);
+    const { requestMap } = viewerId
+      ? await loadViewerRequestMap(viewerId, questionIds)
+      : { requestMap: new Map<string, ViewerRequestSummary>() };
+
+    const items = hits.map((h) => {
+      const item: any = {
+        id: h.id,
+        title: h.title,
+        detail: h.detail,
+        acceptanceCriteria: h.acceptanceCriteria,
+        price: h.price,
+        latitude: h.latitude,
+        longitude: h.longitude,
+        address: h.address,
+        answerRadiusKm: h.answerRadiusKm,
+        status: h.status,
+        createdAt: h.createdAt.toISOString(),
+        answeredAt: h.answeredAt?.toISOString() ?? null,
+        category: { id: h.categoryId, name: h.categoryName, slug: h.categorySlug },
+        questioner: {
+          id: h.userId,
+          name: h.questionerName,
+          username: h.questionerUsername,
+          profileImageUrl: h.questionerProfileImageUrl,
+        },
+        similarity: Number(Number(h.similarity).toFixed(3)),
+      };
+
+      const viewerRequest = requestMap.get(h.id) ?? null;
+      if (viewerRequest) {
+        item.viewerRequest = viewerRequest;
+        item.sectionKey = assignFeedSection({
+          viewerRequest,
+          isBlocked: viewerRequest.isBlocked,
+        });
+      } else if (viewerId) {
+        item.sectionKey = assignFeedSection({ viewerRequest: null, isBlocked: false });
+      }
+      return item;
+    });
+
+    return res.status(200).json({
+      message: 'Successful',
+      data: { items, query: rawQuery },
+    });
+  } catch (error) {
+    console.error('searchQuestions error:', error);
+    return res.status(500).json({ error: 'Failed to search questions' });
   }
 };
 
@@ -574,12 +726,29 @@ export const getRejectedResponders = async (req: AuthedRequest, res: Response) =
       },
     });
 
-    const items = blocks.map((b) => ({
-      responderId: b.responderId,
-      rejectionReason: b.rejectionReason,
-      rejectedAt: b.createdAt.toISOString(),
-      responder: b.responder,
-    }));
+    const responderIds = [...new Set(blocks.map((b) => b.responderId))];
+    const responderRatings = await Promise.all(
+      responderIds.map((id) => getUserRatingByRole(id, RatingRole.AS_RESPONDER)),
+    );
+    const ratingByResponderId = new Map(
+      responderIds.map((id, index) => [id, responderRatings[index]]),
+    );
+
+    const items = blocks.map((b) => {
+      const rating = ratingByResponderId.get(b.responderId)!;
+      return {
+        responderId: b.responderId,
+        rejectionReason: b.rejectionReason,
+        rejectedAt: b.createdAt.toISOString(),
+        responder: {
+          ...b.responder,
+          asResponder: {
+            averageRating: rating.averageRating,
+            reviewsCount: rating.reviewsCount,
+          },
+        },
+      };
+    });
 
     return res.status(200).json({ message: 'Successful', data: { items } });
   } catch (error) {

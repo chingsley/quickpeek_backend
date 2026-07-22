@@ -6,6 +6,7 @@ import { optionalAuthenticateToken } from '../../../api/middlewares/optionalAuth
 import {
   createQuestion,
   getQuestionFeed,
+  searchQuestions,
   getUserPostedQuestions,
   getQuestionDetail,
   markQuestionAnswered,
@@ -20,6 +21,9 @@ const router = Router();
 
 // Public feed (optional auth for personalized sections)
 router.get('/feed', optionalAuthenticateToken, getQuestionFeed);
+
+// Public search (optional auth for viewer enrichment)
+router.get('/search', optionalAuthenticateToken, searchQuestions);
 
 // Authenticated
 router.post('/', authenticateToken, questionCreationLimiter, validateQuestionCreation, createQuestion);

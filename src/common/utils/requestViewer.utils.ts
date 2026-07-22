@@ -82,8 +82,7 @@ export type IncomingRequestSummary = {
 
 export type FeedSectionKey =
   | 'awaiting_your_approval'
-  | 'near_you'
-  | 'new'
+  | 'others'
   | 'pending'
   | 'approved'
   | 'answered_by_you'
@@ -92,9 +91,8 @@ export type FeedSectionKey =
 export const assignFeedSection = (params: {
   viewerRequest: ViewerRequestSummary | null;
   isBlocked: boolean;
-  nearMe: boolean;
 }): FeedSectionKey => {
-  const { viewerRequest, isBlocked, nearMe } = params;
+  const { viewerRequest, isBlocked } = params;
 
   if (viewerRequest?.status === AnswerRequestStatus.PENDING) {
     return 'pending';
@@ -105,16 +103,12 @@ export const assignFeedSection = (params: {
   if (isBlocked || viewerRequest?.status === AnswerRequestStatus.REJECTED) {
     return 'rejected';
   }
-  if (nearMe) {
-    return 'near_you';
-  }
-  return 'new';
+  return 'others';
 };
 
 export const FEED_SECTION_ORDER: FeedSectionKey[] = [
   'awaiting_your_approval',
-  'near_you',
-  'new',
+  'others',
   'pending',
   'approved',
   'answered_by_you',
@@ -123,8 +117,7 @@ export const FEED_SECTION_ORDER: FeedSectionKey[] = [
 
 export const FEED_SECTION_TITLES: Record<FeedSectionKey, string> = {
   awaiting_your_approval: 'Awaiting your approval',
-  near_you: 'Near you',
-  new: 'New questions',
+  others: 'Others',
   pending: 'Waiting for reply',
   approved: 'Approved to answer',
   answered_by_you: 'Answered by you',
@@ -159,15 +152,15 @@ export const loadAwaitingApprovalFeedItems = async (viewerId: string) => {
   const unreadGroups =
     requestIds.length > 0
       ? await prisma.message.groupBy({
-          by: ['answerRequestId'],
-          where: {
-            answerRequestId: { in: requestIds },
-            senderId: { not: viewerId },
-            readAt: null,
-            OR: [{ visibleToUserId: null }, { visibleToUserId: viewerId }],
-          },
-          _count: { id: true },
-        })
+        by: ['answerRequestId'],
+        where: {
+          answerRequestId: { in: requestIds },
+          senderId: { not: viewerId },
+          readAt: null,
+          OR: [{ visibleToUserId: null }, { visibleToUserId: viewerId }],
+        },
+        _count: { id: true },
+      })
       : [];
   const unreadMap = new Map(unreadGroups.map((g) => [g.answerRequestId, g._count.id]));
 
@@ -177,11 +170,46 @@ export const loadAwaitingApprovalFeedItems = async (viewerId: string) => {
   }));
 };
 
+/** One feed row per question with pending incoming requests (grouped). */
+export const buildAwaitingApprovalFeedQuestions = async (viewerId: string) => {
+  const items = await loadAwaitingApprovalFeedItems(viewerId);
+  const byQuestion = new Map<string, typeof items>();
+
+  for (const entry of items) {
+    const questionId = entry.request.questionId;
+    const group = byQuestion.get(questionId) ?? [];
+    group.push(entry);
+    byQuestion.set(questionId, group);
+  }
+
+  return [...byQuestion.values()]
+    .map((entries) => {
+      const latest = entries[0].request;
+      return {
+        question: latest.question,
+        pendingApprovalCount: entries.length,
+        incomingRequest: {
+          id: latest.id,
+          status: latest.status,
+          unreadCount: entries.reduce((sum, e) => sum + e.unreadCount, 0),
+          responder: latest.responder,
+        },
+        sortAt: latest.createdAt,
+      };
+    })
+    .sort((a, b) => b.sortAt.getTime() - a.sortAt.getTime())
+    .map(({ question, pendingApprovalCount, incomingRequest }) => ({
+      question,
+      pendingApprovalCount,
+      incomingRequest,
+    }));
+};
+
 export const loadViewerRequestMap = async (viewerId: string, questionIds: string[]) => {
   if (questionIds.length === 0) {
     return {
       requestMap: new Map<string, ViewerRequestSummary>(),
-      blockMap: new Map<string, { rejectionReason: string | null }>(),
+      blockMap: new Map<string, { rejectionReason: string | null; }>(),
     };
   }
 
@@ -224,15 +252,15 @@ export const loadViewerRequestMap = async (viewerId: string, questionIds: string
   const unreadGroups =
     requestIds.length > 0
       ? await prisma.message.groupBy({
-          by: ['answerRequestId'],
-          where: {
-            answerRequestId: { in: requestIds },
-            senderId: { not: viewerId },
-            readAt: null,
-            OR: [{ visibleToUserId: null }, { visibleToUserId: viewerId }],
-          },
-          _count: { id: true },
-        })
+        by: ['answerRequestId'],
+        where: {
+          answerRequestId: { in: requestIds },
+          senderId: { not: viewerId },
+          readAt: null,
+          OR: [{ visibleToUserId: null }, { visibleToUserId: viewerId }],
+        },
+        _count: { id: true },
+      })
       : [];
   const unreadMap = new Map(unreadGroups.map((g) => [g.answerRequestId, g._count.id]));
 

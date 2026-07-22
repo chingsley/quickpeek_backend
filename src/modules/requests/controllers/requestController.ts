@@ -1,4 +1,4 @@
-import { AnswerRequestStatus, QuestionStatus } from '@prisma/client';
+import { AnswerRequestStatus, QuestionStatus, RatingRole } from '@prisma/client';
 import { Request, Response } from 'express';
 import Joi from 'joi';
 import prisma from '../../../core/database/prisma/client';
@@ -8,9 +8,10 @@ import {
   createSystemMessage,
 } from '../../../common/utils/messages.utils';
 import { calculateHaversineDistance } from '../../../common/utils/geo.utils';
+import { getUserRatingByRole } from '../../../common/utils/ratings';
 import { getActiveBlock } from '../../../common/utils/requestViewer.utils';
 
-type AuthedRequest = Request & { user?: { userId: string } };
+type AuthedRequest = Request & { user?: { userId: string; }; };
 
 const DEFAULT_LIST_PAGE_SIZE = 20;
 const MAX_LIST_PAGE_SIZE = 50;
@@ -88,6 +89,7 @@ const fetchRequestWithQuestion = (id: string) =>
           category: { select: { id: true, name: true, slug: true } },
         },
       },
+      responder: { select: { id: true, username: true } },
     },
   });
 
@@ -213,7 +215,7 @@ export const createRequest = async (req: AuthedRequest, res: Response) => {
 
 /**
  * POST /requests/:id/accept
- * Questioner-only. PENDING -> ACCEPTED with respondedAt; system msg "Request accepted" (both).
+ * Questioner-only. PENDING -> ACCEPTED with respondedAt; role-specific system msgs.
  */
 export const acceptRequest = async (req: AuthedRequest, res: Response) => {
   try {
@@ -241,8 +243,15 @@ export const acceptRequest = async (req: AuthedRequest, res: Response) => {
       questionId: request.questionId,
       answerRequestId: id,
       senderId: userId,
-      text: 'Request accepted.',
-      recipientIds: [request.responderId, userId],
+      text: `You approved @${request.responder.username} to respond`,
+      visibleToUserId: userId,
+    });
+    await createSystemMessage({
+      questionId: request.questionId,
+      answerRequestId: id,
+      senderId: userId,
+      text: 'Request accepted. Send your response.',
+      visibleToUserId: request.responderId,
     });
 
     await createAcceptanceBriefingMessages({
@@ -271,7 +280,7 @@ export const acceptRequest = async (req: AuthedRequest, res: Response) => {
     });
 
     return res.status(200).json({
-      message: 'Request accepted',
+      message: `You approved @${request.responder.username} to respond`,
       data: { id: updated.id, status: updated.status, respondedAt: updated.respondedAt?.toISOString() ?? null },
     });
   } catch (error) {
@@ -405,17 +414,30 @@ export const getIncomingRequests = async (req: AuthedRequest, res: Response) => 
       }),
     ]);
 
-    const items = rows.map((r) =>
-      requestSummary({
+    const responderIds = [...new Set(rows.map((r) => r.responder.id))];
+    const responderRatings = await Promise.all(
+      responderIds.map((id) => getUserRatingByRole(id, RatingRole.AS_RESPONDER)),
+    );
+    const ratingByResponderId = new Map(
+      responderIds.map((id, index) => [id, responderRatings[index]]),
+    );
+
+    const items = rows.map((r) => {
+      const rating = ratingByResponderId.get(r.responder.id)!;
+      return requestSummary({
         ...r,
         counterparty: {
           id: r.responder.id,
           name: r.responder.name,
           username: r.responder.username,
           profileImageUrl: r.responder.profileImageUrl,
+          asResponder: {
+            averageRating: rating.averageRating,
+            reviewsCount: rating.reviewsCount,
+          },
         },
-      }),
-    );
+      });
+    });
 
     return res.status(200).json({
       message: 'Successful',
@@ -538,15 +560,15 @@ export const getConversations = async (req: AuthedRequest, res: Response) => {
     const unreadGroups =
       requestIds.length > 0
         ? await prisma.message.groupBy({
-            by: ['answerRequestId'],
-            where: {
-              answerRequestId: { in: requestIds },
-              senderId: { not: userId },
-              readAt: null,
-              OR: [{ visibleToUserId: null }, { visibleToUserId: userId }],
-            },
-            _count: { id: true },
-          })
+          by: ['answerRequestId'],
+          where: {
+            answerRequestId: { in: requestIds },
+            senderId: { not: userId },
+            readAt: null,
+            OR: [{ visibleToUserId: null }, { visibleToUserId: userId }],
+          },
+          _count: { id: true },
+        })
         : [];
     const unreadMap = new Map(unreadGroups.map((g) => [g.answerRequestId, g._count.id]));
 
@@ -571,10 +593,10 @@ export const getConversations = async (req: AuthedRequest, res: Response) => {
         },
         lastMessage: lastMessage
           ? {
-              text: lastMessage.text,
-              type: lastMessage.type,
-              createdAt: lastMessage.createdAt.toISOString(),
-            }
+            text: lastMessage.text,
+            type: lastMessage.type,
+            createdAt: lastMessage.createdAt.toISOString(),
+          }
           : null,
         unreadCount,
         hasUnread: unreadCount > 0,

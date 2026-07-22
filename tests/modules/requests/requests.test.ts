@@ -188,18 +188,31 @@ describe('requests lifecycle', () => {
       expect(res.status).toBe(401);
     });
 
-    it('accepts a PENDING request and posts a shared system message', async () => {
+    it('accepts a PENDING request and posts role-specific system messages', async () => {
       const res = await request(app)
         .post(`/api/v1/requests/${pendingRequestId}/accept`)
         .set('Authorization', `Bearer ${questioner.token}`);
       expect(res.status).toBe(200);
       expect(res.body.data.status).toBe('ACCEPTED');
 
-      // System message visible to BOTH (visibleToUserId = null)
-      const sysMessages = await prisma.message.findMany({
-        where: { answerRequestId: pendingRequestId, type: 'SYSTEM', visibleToUserId: null },
+      const questionerMsg = await prisma.message.findFirst({
+        where: {
+          answerRequestId: pendingRequestId,
+          type: 'SYSTEM',
+          visibleToUserId: questioner.id,
+          text: { contains: 'You approved' },
+        },
       });
-      expect(sysMessages.length).toBeGreaterThanOrEqual(1);
+      const responderMsg = await prisma.message.findFirst({
+        where: {
+          answerRequestId: pendingRequestId,
+          type: 'SYSTEM',
+          visibleToUserId: responder.id,
+          text: 'Request accepted. Send your response.',
+        },
+      });
+      expect(questionerMsg).not.toBeNull();
+      expect(responderMsg).not.toBeNull();
     });
 
     it('rejects already-accepted requests', async () => {
@@ -283,7 +296,7 @@ describe('requests lifecycle', () => {
         orderBy: { createdAt: 'asc' },
       });
 
-      expect(messages).toHaveLength(6);
+      expect(messages).toHaveLength(7);
 
       expect(messages[0].type).toBe('SYSTEM');
       expect(messages[0].visibleToUserId).toBe(responderUserId);
@@ -291,20 +304,24 @@ describe('requests lifecycle', () => {
       expect(messages[1].visibleToUserId).toBe(questionerUserId);
 
       expect(messages[2].type).toBe('SYSTEM');
-      expect(messages[2].text).toMatch(/accepted/i);
-      expect(messages[2].visibleToUserId).toBeNull();
+      expect(messages[2].text).toMatch(/You approved @r to respond/);
+      expect(messages[2].visibleToUserId).toBe(questionerUserId);
 
-      expect(messages[3].type).toBe('USER');
-      expect(messages[3].senderId).toBe(questionerUserId);
-      expect(messages[3].text).toBe('Location: 1 Spring Garden Rd, Halifax, NS');
+      expect(messages[3].type).toBe('SYSTEM');
+      expect(messages[3].text).toBe('Request accepted. Send your response.');
+      expect(messages[3].visibleToUserId).toBe(responderUserId);
 
       expect(messages[4].type).toBe('USER');
       expect(messages[4].senderId).toBe(questionerUserId);
-      expect(messages[4].text).toBe('Is the branch busy right now?');
+      expect(messages[4].text).toBe('Location: 1 Spring Garden Rd, Halifax, NS');
 
       expect(messages[5].type).toBe('USER');
       expect(messages[5].senderId).toBe(questionerUserId);
-      expect(messages[5].text).toBe('Acceptance criteria: Photo of the queue or head-count.');
+      expect(messages[5].text).toBe('Is the branch busy right now?');
+
+      expect(messages[6].type).toBe('USER');
+      expect(messages[6].senderId).toBe(questionerUserId);
+      expect(messages[6].text).toBe('Acceptance criteria: Photo of the queue or head-count.');
     });
 
     it('exposes briefing messages to both participants via GET messages', async () => {

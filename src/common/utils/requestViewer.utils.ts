@@ -80,51 +80,7 @@ export type IncomingRequestSummary = {
   };
 };
 
-export type FeedSectionKey =
-  | 'awaiting_your_approval'
-  | 'others'
-  | 'pending'
-  | 'approved'
-  | 'answered_by_you'
-  | 'rejected';
-
-export const assignFeedSection = (params: {
-  viewerRequest: ViewerRequestSummary | null;
-  isBlocked: boolean;
-}): FeedSectionKey => {
-  const { viewerRequest, isBlocked } = params;
-
-  if (viewerRequest?.status === AnswerRequestStatus.PENDING) {
-    return 'pending';
-  }
-  if (viewerRequest?.status === AnswerRequestStatus.ACCEPTED) {
-    return viewerRequest.hasResponded ? 'answered_by_you' : 'approved';
-  }
-  if (isBlocked || viewerRequest?.status === AnswerRequestStatus.REJECTED) {
-    return 'rejected';
-  }
-  return 'others';
-};
-
-export const FEED_SECTION_ORDER: FeedSectionKey[] = [
-  'awaiting_your_approval',
-  'others',
-  'pending',
-  'approved',
-  'answered_by_you',
-  'rejected',
-];
-
-export const FEED_SECTION_TITLES: Record<FeedSectionKey, string> = {
-  awaiting_your_approval: 'Awaiting your approval',
-  others: 'Others',
-  pending: 'Waiting for reply',
-  approved: 'Approved to answer',
-  answered_by_you: 'Answered by you',
-  rejected: 'Rejected',
-};
-
-/** Pending incoming requests on the viewer's own OPEN questions (questioner feed section). */
+/** Pending incoming requests on the viewer's own OPEN questions. */
 export const loadAwaitingApprovalFeedItems = async (viewerId: string) => {
   const requests = await prisma.answerRequest.findMany({
     where: {
@@ -187,7 +143,6 @@ export const buildAwaitingApprovalFeedQuestions = async (viewerId: string) => {
       const latest = entries[0].request;
       return {
         question: latest.question,
-        pendingApprovalCount: entries.length,
         incomingRequest: {
           id: latest.id,
           status: latest.status,
@@ -198,9 +153,8 @@ export const buildAwaitingApprovalFeedQuestions = async (viewerId: string) => {
       };
     })
     .sort((a, b) => b.sortAt.getTime() - a.sortAt.getTime())
-    .map(({ question, pendingApprovalCount, incomingRequest }) => ({
+    .map(({ question, incomingRequest }) => ({
       question,
-      pendingApprovalCount,
       incomingRequest,
     }));
 };

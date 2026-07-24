@@ -229,7 +229,7 @@ describe('questions marketplace', () => {
     });
   });
 
-  describe('GET /api/v1/questions/feed (sectioned for authenticated viewers)', () => {
+  describe('GET /api/v1/questions/feed (authenticated viewers)', () => {
     let feedResponder: { id: string; token: string; };
     let pendingQuestionId: string;
     let approvedQuestionId: string;
@@ -342,32 +342,28 @@ describe('questions marketplace', () => {
       void answeredStatusQ;
     });
 
-    const sectionTitles = (res: any) => res.body.data.sections.map((s: any) => s.key);
-    const itemsIn = (res: any, key: string) =>
-      res.body.data.sections.find((s: any) => s.key === key)?.items.map((q: any) => q.title) ?? [];
+    const feedTitles = (res: any) => res.body.data.items.map((q: any) => q.title);
 
-    it('returns sectioned feed for authenticated viewer', async () => {
+    it('returns flat feed with counts for authenticated viewer', async () => {
       const res = await request(app)
         .get('/api/v1/questions/feed?lat=44.6126&lng=-63.6192')
         .set('Authorization', `Bearer ${feedResponder.token}`);
 
       expect(res.status).toBe(200);
-      expect(res.body.data.sections).toBeDefined();
-      expect(sectionTitles(res)).toEqual(
-        expect.arrayContaining([
-          'pending',
-          'approved',
-          'answered_by_you',
-          'rejected',
-          'others',
-        ]),
-      );
-      expect(itemsIn(res, 'pending')).toContain('Pending Section Q');
-      expect(itemsIn(res, 'approved')).toContain('Approved Section Q');
-      expect(itemsIn(res, 'answered_by_you')).toContain('Answered Section Q');
-      expect(itemsIn(res, 'rejected')).toContain('Rejected Section Q');
-      expect(itemsIn(res, 'others')).toContain('Fresh Section Q');
-      expect(itemsIn(res, 'others')).toContain('New Section Q');
+      expect(res.body.data.items).toBeDefined();
+      expect(res.body.data.counts).toMatchObject({
+        all: expect.any(Number),
+        incoming: expect.any(Number),
+        outgoing: expect.any(Number),
+      });
+      expect(feedTitles(res)).toContain('Pending Section Q');
+      expect(feedTitles(res)).toContain('Approved Section Q');
+      expect(feedTitles(res)).toContain('Answered Section Q');
+      expect(feedTitles(res)).toContain('Rejected Section Q');
+      expect(feedTitles(res)).toContain('Fresh Section Q');
+      expect(feedTitles(res)).toContain('New Section Q');
+      expect(res.body.data.counts.incoming).toBeGreaterThan(0);
+      expect(res.body.data.counts.outgoing).toBe(0);
     });
 
     it('flags geographically close questions with nearMe when coords are inferred from saved location', async () => {
@@ -376,14 +372,12 @@ describe('questions marketplace', () => {
         .set('Authorization', `Bearer ${feedResponder.token}`);
 
       expect(res.status).toBe(200);
-      const fresh = res.body.data.sections
-        .flatMap((s: any) => s.items)
-        .find((q: any) => q.title === 'Fresh Section Q');
+      const fresh = res.body.data.items.find((q: any) => q.title === 'Fresh Section Q');
       expect(fresh).toBeTruthy();
       expect(fresh.nearMe).toBe(true);
     });
 
-    it('returns awaiting_your_approval for questioner incoming pending requests', async () => {
+    it('includes incomingRequest on questioner own questions with pending requests', async () => {
       const incomingQ = await prisma.question.create({
         data: {
           title: 'Incoming Approval Q',
@@ -409,18 +403,16 @@ describe('questions marketplace', () => {
         .set('Authorization', `Bearer ${questioner.token}`);
 
       expect(res.status).toBe(200);
-      expect(itemsIn(res, 'awaiting_your_approval')).toContain('Incoming Approval Q');
-      const item = res.body.data.sections
-        .find((s: any) => s.key === 'awaiting_your_approval')
-        ?.items.find((q: any) => q.title === 'Incoming Approval Q');
+      expect(feedTitles(res)).toContain('Incoming Approval Q');
+      const item = res.body.data.items.find((q: any) => q.title === 'Incoming Approval Q');
       expect(item.incomingRequest).toMatchObject({
         status: 'PENDING',
         responder: { id: feedResponder.id },
       });
-      expect(item.pendingApprovalCount).toBe(1);
+      expect(res.body.data.counts.outgoing).toBeGreaterThan(0);
     });
 
-    it('groups multiple pending requests into one awaiting_your_approval card per question', async () => {
+    it('groups multiple pending requests into one feed card per question', async () => {
       const incomingQ = await prisma.question.create({
         data: {
           title: 'Grouped Approval Q',
@@ -458,29 +450,25 @@ describe('questions marketplace', () => {
         .set('Authorization', `Bearer ${questioner.token}`);
 
       expect(res.status).toBe(200);
-      const awaitingItems = res.body.data.sections
-        .find((s: any) => s.key === 'awaiting_your_approval')
-        ?.items.filter((q: any) => q.title === 'Grouped Approval Q');
-      expect(awaitingItems).toHaveLength(1);
-      expect(awaitingItems[0].pendingApprovalCount).toBe(2);
+      const groupedItems = res.body.data.items.filter((q: any) => q.title === 'Grouped Approval Q');
+      expect(groupedItems).toHaveLength(1);
+      expect(groupedItems[0].incomingRequest).toBeDefined();
     });
 
-    it('excludes ANSWERED questions from all sections', async () => {
+    it('excludes ANSWERED questions from feed items', async () => {
       const res = await request(app)
         .get('/api/v1/questions/feed')
         .set('Authorization', `Bearer ${feedResponder.token}`);
 
-      const allTitles = res.body.data.sections.flatMap((s: any) => s.items.map((q: any) => q.title));
-      expect(allTitles).not.toContain('Answered Status Q');
+      expect(feedTitles(res)).not.toContain('Answered Status Q');
     });
 
-    it('marks hasResponded on answered_by_you items', async () => {
+    it('marks hasResponded on answered items', async () => {
       const res = await request(app)
         .get('/api/v1/questions/feed')
         .set('Authorization', `Bearer ${feedResponder.token}`);
 
-      const answeredSection = res.body.data.sections.find((s: any) => s.key === 'answered_by_you');
-      const item = answeredSection.items.find((q: any) => q.id === answeredQuestionId);
+      const item = res.body.data.items.find((q: any) => q.id === answeredQuestionId);
       expect(item.viewerRequest.hasResponded).toBe(true);
     });
 
@@ -488,7 +476,7 @@ describe('questions marketplace', () => {
       const res = await request(app).get('/api/v1/questions/feed');
       expect(res.status).toBe(200);
       expect(res.body.data.items).toBeDefined();
-      expect(res.body.data.sections).toBeUndefined();
+      expect(res.body.data.counts).toBeUndefined();
     });
   });
 

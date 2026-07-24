@@ -15,12 +15,9 @@ import {
   nearbyCacheKey,
   setCachedNearbyQuestions,
 } from '../../../common/utils/cache';
+import { NEAR_ME_RADIUS } from '../../../common/constants/location.constants';
 import {
-  assignFeedSection,
   buildViewerRequestSummary,
-  FEED_SECTION_ORDER,
-  FEED_SECTION_TITLES,
-  FeedSectionKey,
   getActiveBlock,
   loadViewerRequestMap,
   buildAwaitingApprovalFeedQuestions,
@@ -113,7 +110,7 @@ export const createQuestion = async (req: AuthedRequest, res: Response) => {
 
 /**
  * GET /questions/feed — public feed of OPEN questions.
- * Authenticated viewers receive sectioned feed with interaction state.
+ * Authenticated viewers receive a flat feed with incoming/outgoing counts.
  * Filters:
  *   ?lat=&lng=           viewer coords (enables distance + nearMe flag)
  *   ?radiusKm=           restrict to within radius of viewer
@@ -158,7 +155,6 @@ export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
 
     const where: Prisma.QuestionWhereInput = {
       status: QuestionStatus.OPEN,
-      ...(viewerId ? { userId: { not: viewerId } } : {}),
     };
 
     const rows = await prisma.question.findMany({
@@ -178,7 +174,7 @@ export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
       : { requestMap: new Map<string, ViewerRequestSummary>() };
 
     const enriched = rows.map((q) => {
-      const item: any = publicQuestionShape(q);
+      const item: any = { ...publicQuestionShape(q), userId: q.userId };
       let nearMe = false;
       if (viewerHasCoords && q.latitude != null && q.longitude != null) {
         const distanceKm = calculateHaversineDistance(
@@ -190,8 +186,12 @@ export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
         item.distanceKm = Number(distanceKm.toFixed(2));
         if (useRadiusFilter) {
           nearMe = distanceKm <= radiusKm;
-        } else if (q.answerRadiusKm != null) {
-          nearMe = distanceKm <= q.answerRadiusKm;
+        } else {
+          // Use the question's own radius when set, otherwise fall back to
+          // the market-wide NEAR_ME_RADIUS so the icon indicator and filter
+          // stay consistent for questions that have a location but no radius.
+          const effectiveRadius = q.answerRadiusKm ?? NEAR_ME_RADIUS;
+          nearMe = distanceKm <= effectiveRadius;
         }
       } else {
         item.distanceKm = null;
@@ -201,15 +201,6 @@ export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
       const viewerRequest = requestMap.get(q.id) ?? null;
       if (viewerRequest) {
         item.viewerRequest = viewerRequest;
-        item.sectionKey = assignFeedSection({
-          viewerRequest,
-          isBlocked: viewerRequest.isBlocked,
-        });
-      } else if (viewerId) {
-        item.sectionKey = assignFeedSection({
-          viewerRequest: null,
-          isBlocked: false,
-        });
       }
 
       return item;
@@ -225,34 +216,36 @@ export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
         : enriched;
 
     if (viewerId) {
-      const buckets = new Map<FeedSectionKey, any[]>(
-        FEED_SECTION_ORDER.map((key) => [key, []]),
-      );
-      for (const item of visible) {
-        const key = (item.sectionKey as FeedSectionKey) ?? 'others';
-        buckets.get(key)?.push(item);
-      }
-
       const awaitingApproval = await buildAwaitingApprovalFeedQuestions(viewerId);
-      for (const { question: q, pendingApprovalCount, incomingRequest } of awaitingApproval) {
-        buckets.get('awaiting_your_approval')?.push({
-          ...publicQuestionShape(q),
-          userId: q.userId,
-          pendingApprovalCount,
-          incomingRequest,
-          sectionKey: 'awaiting_your_approval',
-        });
-      }
+      const awaitingByQuestionId = new Map(
+        awaitingApproval.map(({ question, incomingRequest }) => [
+          question.id,
+          { incomingRequest },
+        ]),
+      );
 
-      const sections = FEED_SECTION_ORDER.map((key) => ({
-        key,
-        title: FEED_SECTION_TITLES[key],
-        items: buckets.get(key) ?? [],
-      }));
+      const items = visible.map((item: any) => {
+        const awaiting = awaitingByQuestionId.get(item.id);
+        if (!awaiting) return item;
+        return {
+          ...item,
+          incomingRequest: awaiting.incomingRequest,
+        };
+      });
+
+      const incoming = items.filter((item: any) => item.userId !== viewerId).length;
+      const outgoing = items.filter((item: any) => item.userId === viewerId).length;
 
       return res.status(200).json({
         message: 'Successful',
-        data: { sections },
+        data: {
+          items,
+          counts: {
+            all: items.length,
+            incoming,
+            outgoing,
+          },
+        },
       });
     }
 
@@ -417,12 +410,6 @@ export const searchQuestions = async (req: AuthedRequest, res: Response) => {
       const viewerRequest = requestMap.get(h.id) ?? null;
       if (viewerRequest) {
         item.viewerRequest = viewerRequest;
-        item.sectionKey = assignFeedSection({
-          viewerRequest,
-          isBlocked: viewerRequest.isBlocked,
-        });
-      } else if (viewerId) {
-        item.sectionKey = assignFeedSection({ viewerRequest: null, isBlocked: false });
       }
       return item;
     });
@@ -651,6 +638,7 @@ export const getQuestionDetail = async (req: AuthedRequest, res: Response) => {
     ]);
 
     let distanceKm: number | null = null;
+    let nearMe = false;
     if (
       viewerWithCoords &&
       viewerWithCoords.latitude != null &&
@@ -666,6 +654,8 @@ export const getQuestionDetail = async (req: AuthedRequest, res: Response) => {
           question.longitude,
         ).toFixed(2),
       );
+      const effectiveRadius = question.answerRadiusKm ?? NEAR_ME_RADIUS;
+      nearMe = distanceKm <= effectiveRadius;
     }
 
     return res.status(200).json({
@@ -674,6 +664,7 @@ export const getQuestionDetail = async (req: AuthedRequest, res: Response) => {
         ...publicQuestionShape(question),
         userId: question.userId,
         distanceKm,
+        nearMe,
         questioner: {
           id: question.user.id,
           name: question.user.name,

@@ -471,27 +471,13 @@ async function seed() {
     throw new Error(`Expected at least 5 awaiting-your-approval seeds, got ${awaitingApprovalCount}`);
   }
 
-  console.log('\nCreating questions from other users (home feed sections for test03)…');
+  console.log('\nCreating questions from other users (home feed for test03)…');
 
-  const MIN_PER_SECTION = 5;
+  const MIN_INCOMING_QUESTIONS = 5;
   const otherUsers = users.filter((u) => u.id !== test03.id);
   let questionerRotator = 0;
   const nextQuestioner = () => otherUsers[questionerRotator++ % otherUsers.length];
-
-  type FeedSectionKey =
-    | 'others'
-    | 'pending'
-    | 'approved'
-    | 'answered_by_you'
-    | 'rejected';
-
-  const sectionCounts: Record<FeedSectionKey, number> = {
-    others: 0,
-    pending: 0,
-    approved: 0,
-    answered_by_you: 0,
-    rejected: 0,
-  };
+  let feedQuestionIndex = 0;
 
   type RequestKind = 'pending' | 'approved' | 'answered' | 'rejected';
 
@@ -814,24 +800,20 @@ async function seed() {
     },
   ];
 
-  async function createFeedQuestion(
-    def: FeedQuestionDef,
-    section: FeedSectionKey,
-    nearTest03: boolean,
-  ) {
+  async function createFeedQuestion(def: FeedQuestionDef, nearTest03: boolean) {
     const questioner = nextQuestioner();
     const category = categories[def.categorySlug];
-    const useLocation = nearTest03 || section !== 'others';
-    const address = useLocation ? ADDRESSES[sectionCounts[section] % ADDRESSES.length] : null;
+    const useLocation = nearTest03 || Boolean(def.request);
+    const address = useLocation ? ADDRESSES[feedQuestionIndex % ADDRESSES.length] : null;
     const longitude = useLocation
       ? nearTest03
-        ? centralLongitude + (sectionCounts[section] % 5) * 0.0004
-        : centralLongitude + 0.08 + (sectionCounts[section] % 3) * 0.01
+        ? centralLongitude + (feedQuestionIndex % 5) * 0.0004
+        : centralLongitude + 0.08 + (feedQuestionIndex % 3) * 0.01
       : null;
     const latitude = useLocation
       ? nearTest03
-        ? centralLatitude + (sectionCounts[section] % 5) * 0.0003
-        : centralLatitude + 0.08 + (sectionCounts[section] % 3) * 0.01
+        ? centralLatitude + (feedQuestionIndex % 5) * 0.0003
+        : centralLatitude + 0.08 + (feedQuestionIndex % 3) * 0.01
       : null;
 
     const q = await prisma.question.create({
@@ -850,7 +832,7 @@ async function seed() {
       },
     });
 
-    sectionCounts[section]++;
+    feedQuestionIndex++;
 
     if (!def.request) return;
 
@@ -967,30 +949,30 @@ async function seed() {
   }
 
   for (const def of nearYouDefs) {
-    await createFeedQuestion(def, 'others', true);
+    await createFeedQuestion(def, true);
   }
   for (const def of newDefs) {
-    await createFeedQuestion(def, 'others', false);
+    await createFeedQuestion(def, false);
   }
   for (const def of pendingDefs) {
-    await createFeedQuestion(def, 'pending', true);
+    await createFeedQuestion(def, true);
   }
   for (const def of approvedDefs) {
-    await createFeedQuestion(def, 'approved', true);
+    await createFeedQuestion(def, true);
   }
   for (const def of answeredDefs) {
-    await createFeedQuestion(def, 'answered_by_you', true);
+    await createFeedQuestion(def, true);
   }
   for (const def of rejectedDefs) {
-    await createFeedQuestion(def, 'rejected', true);
+    await createFeedQuestion(def, true);
   }
 
-  for (const [key, count] of Object.entries(sectionCounts) as [FeedSectionKey, number][]) {
-    if (count < MIN_PER_SECTION) {
-      throw new Error(`Seed feed section "${key}" has ${count} items; expected at least ${MIN_PER_SECTION}`);
-    }
-    console.log(`  ${key}: ${count} questions`);
+  if (feedQuestionIndex < MIN_INCOMING_QUESTIONS) {
+    throw new Error(
+      `Expected at least ${MIN_INCOMING_QUESTIONS} incoming feed questions, got ${feedQuestionIndex}`,
+    );
   }
+  console.log(`  incoming questions from other users: ${feedQuestionIndex}`);
 
   // Seeded review for the ANSWERED pancake question (single accepted request, both sides reviewed)
   const pancakeQuestion = outboxQuestions.find((q) => q.title === 'Best pancake recipe?');
@@ -1093,8 +1075,8 @@ async function seed() {
 
   console.log('\n✅ Seed complete!');
   console.log(`   Login: ${test03.email} / password: password123`);
-  console.log('   Home feed (test03): Awaiting your approval, Others, Waiting for reply, Approved, Answered by you, Rejected');
-  console.log('   Briefing test: open Approved chats, or accept a request in Awaiting your approval');
+  console.log('   Home feed (test03): All questions, Incoming, Outgoing');
+  console.log('   Briefing test: open approved chats, or accept a request on your own question');
 }
 
 seed()

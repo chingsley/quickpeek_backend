@@ -211,7 +211,7 @@ describe('categories module', () => {
       await prisma.question.create({
         data: {
           title: 'Sample',
-          detail: 'Sample detail body for the marketplace question.',
+          detail: 'Sample detail body for a question.',
           categoryId: cat.id,
           price: 5,
           acceptanceCriteria: 'Anything reasonable.',

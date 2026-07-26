@@ -106,25 +106,29 @@ describe('requests lifecycle', () => {
       expect(res.body.existingStatus).toBe('PENDING');
     });
 
-    it('rejects when question is ANSWERED', async () => {
-      const answered = await buildQuestion(questioner.id, categoryId, {
-        title: 'Answered',
-        status: QuestionStatus.ANSWERED,
+    it('rejects when question is CLOSED', async () => {
+      const closed = await buildQuestion(questioner.id, categoryId, {
+        title: 'Closed answered',
+        status: QuestionStatus.CLOSED,
         answeredAt: new Date(),
+        closedAt: new Date(),
+        closeReason: 'Question answered',
       });
       const res = await request(app)
-        .post(`/api/v1/questions/${answered.id}/requests`)
+        .post(`/api/v1/questions/${closed.id}/requests`)
         .set('Authorization', `Bearer ${responder.token}`);
       expect(res.status).toBe(409);
     });
 
-    it('rejects when question is CANCELLED', async () => {
-      const cancelled = await buildQuestion(questioner.id, categoryId, {
-        title: 'Cancelled',
-        status: QuestionStatus.CANCELLED,
+    it('rejects when question is CLOSED without answeredAt', async () => {
+      const closed = await buildQuestion(questioner.id, categoryId, {
+        title: 'Closed other',
+        status: QuestionStatus.CLOSED,
+        closedAt: new Date(),
+        closeReason: 'No longer need the information',
       });
       const res = await request(app)
-        .post(`/api/v1/questions/${cancelled.id}/requests`)
+        .post(`/api/v1/questions/${closed.id}/requests`)
         .set('Authorization', `Bearer ${responder.token}`);
       expect(res.status).toBe(409);
     });

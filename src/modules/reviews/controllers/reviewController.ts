@@ -13,7 +13,7 @@ const getRequestWithQuestion = async (requestId: string) =>
   prisma.answerRequest.findUnique({
     where: { id: requestId },
     include: {
-      question: { select: { id: true, status: true, userId: true } },
+      question: { select: { id: true, status: true, userId: true, answeredAt: true } },
     },
   });
 
@@ -35,7 +35,7 @@ const assertReviewParticipant = (
 /**
  * GET /requests/:id/review-eligibility
  * Eligibility to review a request: must be a participant, request must be
- * ACCEPTED, and the question must be ANSWERED (or activity threshold met).
+ * ACCEPTED, and the question must be closed as answered (or activity threshold met).
  */
 export const getReviewEligibility = async (req: AuthedRequest, res: Response) => {
   try {

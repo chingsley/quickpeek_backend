@@ -8,7 +8,7 @@ const LONGITUDE = Joi.number().min(-180).max(180).precision(14);
 const DEFAULT_CATEGORY_SLUG = 'other';
 
 /**
- * Validates the new marketplace question payload.
+ * Validates the new question payload.
  * Location fields are optional; if `latitude`/`longitude` are present,
  * `address` is required so the question can be displayed on the feed map.
  */

@@ -7,6 +7,7 @@ import { AnswerRequestStatus, QuestionStatus } from '@prisma/client';
 const buildRequestScenario = async (overrides: {
   requestStatus?: AnswerRequestStatus;
   questionStatus?: QuestionStatus;
+  markedAnswered?: boolean;
   withActivity?: boolean;
 } = {}) => {
   await clearDatabase();
@@ -28,7 +29,9 @@ const buildRequestScenario = async (overrides: {
       acceptanceCriteria: 'criteria',
       userId: q.id,
       status: overrides.questionStatus ?? QuestionStatus.OPEN,
-      answeredAt: overrides.questionStatus === QuestionStatus.ANSWERED ? new Date() : null,
+      answeredAt: overrides.markedAnswered ? new Date() : null,
+      closedAt: overrides.markedAnswered ? new Date() : null,
+      closeReason: overrides.markedAnswered ? 'Question answered' : null,
     },
   });
   const answerRequest = await prisma.answerRequest.create({
@@ -66,7 +69,7 @@ describe('reviews (request-scoped, double-blind)', () => {
     it('unlocks when request is ACCEPTED and question is ANSWERED', async () => {
       const { answerRequest, q } = await buildRequestScenario({
         requestStatus: AnswerRequestStatus.ACCEPTED,
-        questionStatus: QuestionStatus.ANSWERED,
+        markedAnswered: true,
       });
       const res = await request(app)
         .get(`/api/v1/requests/${answerRequest.id}/review-eligibility`)
@@ -104,7 +107,7 @@ describe('reviews (request-scoped, double-blind)', () => {
     it('reports alreadyReviewed after a review is submitted', async () => {
       const { answerRequest, q } = await buildRequestScenario({
         requestStatus: AnswerRequestStatus.ACCEPTED,
-        questionStatus: QuestionStatus.ANSWERED,
+        markedAnswered: true,
       });
       await request(app)
         .post(`/api/v1/requests/${answerRequest.id}/reviews`)
@@ -131,7 +134,7 @@ describe('reviews (request-scoped, double-blind)', () => {
     it('creates a hidden review when only one party has reviewed', async () => {
       const { answerRequest, q } = await buildRequestScenario({
         requestStatus: AnswerRequestStatus.ACCEPTED,
-        questionStatus: QuestionStatus.ANSWERED,
+        markedAnswered: true,
       });
       const res = await request(app)
         .post(`/api/v1/requests/${answerRequest.id}/reviews`)
@@ -152,7 +155,7 @@ describe('reviews (request-scoped, double-blind)', () => {
     it('reveals both reviews once both parties submit', async () => {
       const { answerRequest, q, r } = await buildRequestScenario({
         requestStatus: AnswerRequestStatus.ACCEPTED,
-        questionStatus: QuestionStatus.ANSWERED,
+        markedAnswered: true,
       });
 
       const resQ = await request(app)
@@ -176,7 +179,7 @@ describe('reviews (request-scoped, double-blind)', () => {
     it('updates aggregates (UserRating) after reveal', async () => {
       const { answerRequest, q, r } = await buildRequestScenario({
         requestStatus: AnswerRequestStatus.ACCEPTED,
-        questionStatus: QuestionStatus.ANSWERED,
+        markedAnswered: true,
       });
 
       await request(app).post(`/api/v1/requests/${answerRequest.id}/reviews`)
@@ -214,7 +217,7 @@ describe('reviews (request-scoped, double-blind)', () => {
     it('rejects invalid star values', async () => {
       const { answerRequest, q } = await buildRequestScenario({
         requestStatus: AnswerRequestStatus.ACCEPTED,
-        questionStatus: QuestionStatus.ANSWERED,
+        markedAnswered: true,
       });
       const res = await request(app)
         .post(`/api/v1/requests/${answerRequest.id}/reviews`)
@@ -226,7 +229,7 @@ describe('reviews (request-scoped, double-blind)', () => {
     it('rejects non-participants', async () => {
       const { answerRequest, outsider } = await buildRequestScenario({
         requestStatus: AnswerRequestStatus.ACCEPTED,
-        questionStatus: QuestionStatus.ANSWERED,
+        markedAnswered: true,
       });
       const res = await request(app)
         .post(`/api/v1/requests/${answerRequest.id}/reviews`)
@@ -249,7 +252,7 @@ describe('reviews (request-scoped, double-blind)', () => {
     it('returns the caller review when submitted', async () => {
       const { answerRequest, q } = await buildRequestScenario({
         requestStatus: AnswerRequestStatus.ACCEPTED,
-        questionStatus: QuestionStatus.ANSWERED,
+        markedAnswered: true,
       });
       await request(app).post(`/api/v1/requests/${answerRequest.id}/reviews`)
         .set('Authorization', `Bearer ${q.token}`)

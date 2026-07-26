@@ -21,10 +21,13 @@ import {
   getActiveBlock,
   loadViewerRequestMap,
   buildAwaitingApprovalFeedQuestions,
+  loadQuestionFeedAttentionMap,
+  getQuestionFeedAttention,
   ViewerRequestSummary,
 } from '../../../common/utils/requestViewer.utils';
+import { sortQuestionFeedByDefaultPriority } from '../../../common/utils/questionFeedSort.utils';
 
-type AuthedRequest = Request & { user?: { userId: string } };
+type AuthedRequest = Request & { user?: { userId: string; }; };
 
 const DEFAULT_FEED_PAGE_SIZE = 20;
 const MAX_FEED_PAGE_SIZE = 50;
@@ -51,6 +54,8 @@ const publicQuestionShape = (q: any) => ({
   status: q.status,
   createdAt: q.createdAt.toISOString(),
   answeredAt: q.answeredAt?.toISOString() ?? null,
+  closedAt: q.closedAt?.toISOString() ?? null,
+  closeReason: q.closeReason ?? null,
   category: q.category,
   questioner: q.user && {
     id: q.user.id,
@@ -60,8 +65,31 @@ const publicQuestionShape = (q: any) => ({
   },
 });
 
+export const PRESET_CLOSE_REASONS = [
+  'Question answered',
+  'No longer need the information',
+  'Found the answer elsewhere',
+  'Posted by mistake',
+  'Price or terms no longer work',
+] as const;
+
+export const CLOSE_REASON_QUESTION_ANSWERED = PRESET_CLOSE_REASONS[0];
+
+const MAX_CLOSE_REASON_LENGTH = 500;
+
 /**
- * POST /questions — create a marketplace question.
+ * GET /questions/close-reasons
+ * Returns preset close reasons for the close-question modal.
+ */
+export const getCloseReasons = async (_req: AuthedRequest, res: Response) => {
+  return res.status(200).json({
+    message: 'Successful',
+    data: { items: PRESET_CLOSE_REASONS },
+  });
+};
+
+/**
+ * POST /questions — create a question.
  * Body validated by validateQuestionCreation.
  */
 export const createQuestion = async (req: AuthedRequest, res: Response) => {
@@ -114,7 +142,7 @@ export const createQuestion = async (req: AuthedRequest, res: Response) => {
  * Filters:
  *   ?lat=&lng=           viewer coords (enables distance + nearMe flag)
  *   ?radiusKm=           restrict to within radius of viewer
- *   ?nearMe=true         restrict to questions whose own answerRadiusKm contains the viewer
+ *   ?nearMe=true         restrict to incoming questions within NEAR_ME_RADIUS of the viewer
  *   ?page=&limit=        pagination (flat feed only)
  */
 export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
@@ -187,11 +215,9 @@ export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
         if (useRadiusFilter) {
           nearMe = distanceKm <= radiusKm;
         } else {
-          // Use the question's own radius when set, otherwise fall back to
-          // the market-wide NEAR_ME_RADIUS so the icon indicator and filter
-          // stay consistent for questions that have a location but no radius.
-          const effectiveRadius = q.answerRadiusKm ?? NEAR_ME_RADIUS;
-          nearMe = distanceKm <= effectiveRadius;
+          // Viewer-centric proximity for feed icon, filter, and sort — separate from
+          // each question's answerRadiusKm (used for canRequest eligibility).
+          nearMe = distanceKm <= NEAR_ME_RADIUS;
         }
       } else {
         item.distanceKm = null;
@@ -208,11 +234,19 @@ export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
 
     const visible = useRadiusFilter
       ? enriched.filter((q: any) => {
-          if (q.viewerRequest) return true;
-          return q.distanceKm != null && q.distanceKm <= radiusKm;
-        })
+        if (q.viewerRequest) return true;
+        return q.distanceKm != null && q.distanceKm <= radiusKm;
+      })
       : filterByNearMe
-        ? enriched.filter((q: any) => q.nearMe === true)
+        ? enriched.filter((q: any) => {
+          if (q.distanceKm == null || q.latitude == null || q.longitude == null) {
+            return false;
+          }
+          if (viewerId && q.userId === viewerId) {
+            return false;
+          }
+          return q.distanceKm <= NEAR_ME_RADIUS;
+        })
         : enriched;
 
     if (viewerId) {
@@ -233,15 +267,30 @@ export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
         };
       });
 
-      const incoming = items.filter((item: any) => item.userId !== viewerId).length;
-      const outgoing = items.filter((item: any) => item.userId === viewerId).length;
+      const attentionMap = await loadQuestionFeedAttentionMap(
+        viewerId,
+        items.map((item: any) => ({ id: item.id, userId: item.userId })),
+      );
+
+      const itemsWithAttention = items.map((item: any) => ({
+        ...item,
+        feedAttention: getQuestionFeedAttention(attentionMap, item.id),
+      }));
+
+      const sortedItems =
+        filterByNearMe || useRadiusFilter
+          ? itemsWithAttention
+          : sortQuestionFeedByDefaultPriority(itemsWithAttention, viewerId);
+
+      const incoming = sortedItems.filter((item: any) => item.userId !== viewerId).length;
+      const outgoing = sortedItems.filter((item: any) => item.userId === viewerId).length;
 
       return res.status(200).json({
         message: 'Successful',
         data: {
-          items,
+          items: sortedItems,
           counts: {
-            all: items.length,
+            all: sortedItems.length,
             incoming,
             outgoing,
           },
@@ -262,7 +311,7 @@ export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
 
     if (!viewerHasCoords && page === 1) {
       const key = `feed:open:p1:limit${limit}`;
-      await setCachedNearbyQuestions(key, response).catch(() => {});
+      await setCachedNearbyQuestions(key, response).catch(() => { });
     }
 
     return res.status(200).json({ message: 'Successful', data: response });
@@ -383,6 +432,13 @@ export const searchQuestions = async (req: AuthedRequest, res: Response) => {
       ? await loadViewerRequestMap(viewerId, questionIds)
       : { requestMap: new Map<string, ViewerRequestSummary>() };
 
+    const attentionMap = viewerId
+      ? await loadQuestionFeedAttentionMap(
+        viewerId,
+        hits.map((h) => ({ id: h.id, userId: h.userId })),
+      )
+      : new Map();
+
     const items = hits.map((h) => {
       const item: any = {
         id: h.id,
@@ -410,6 +466,9 @@ export const searchQuestions = async (req: AuthedRequest, res: Response) => {
       const viewerRequest = requestMap.get(h.id) ?? null;
       if (viewerRequest) {
         item.viewerRequest = viewerRequest;
+      }
+      if (viewerId) {
+        item.feedAttention = getQuestionFeedAttention(attentionMap, h.id);
       }
       return item;
     });
@@ -477,8 +536,7 @@ type CanRequestReason =
   | 'OUTSIDE_RADIUS'
   | 'ALREADY_REQUESTED'
   | 'BLOCKED'
-  | 'ANSWERED'
-  | 'CANCELLED'
+  | 'CLOSED'
   | 'OWN_QUESTION'
   | 'NO_VIEWER_LOCATION';
 
@@ -491,16 +549,13 @@ const computeCanRequest = async (
     longitude: number | null;
     answerRadiusKm: number | null;
   },
-  viewer: { userId: string; latitude?: number | null; longitude?: number | null } | null,
-): Promise<{ canRequest: boolean; reason: CanRequestReason | null; existingRequestId: string | null }> => {
+  viewer: { userId: string; latitude?: number | null; longitude?: number | null; } | null,
+): Promise<{ canRequest: boolean; reason: CanRequestReason | null; existingRequestId: string | null; }> => {
   if (question.userId === viewer?.userId) {
     return { canRequest: false, reason: 'OWN_QUESTION', existingRequestId: null };
   }
-  if (question.status === QuestionStatus.ANSWERED) {
-    return { canRequest: false, reason: 'ANSWERED', existingRequestId: null };
-  }
-  if (question.status === QuestionStatus.CANCELLED) {
-    return { canRequest: false, reason: 'CANCELLED', existingRequestId: null };
+  if (question.status === QuestionStatus.CLOSED) {
+    return { canRequest: false, reason: 'CLOSED', existingRequestId: null };
   }
 
   let existingRequestId: string | null = null;
@@ -582,20 +637,20 @@ export const getQuestionDetail = async (req: AuthedRequest, res: Response) => {
     const viewer =
       viewerId != null
         ? await prisma.user.findUnique({
-            where: { id: viewerId },
-            select: {
-              id: true,
-              location: { select: { latitude: true, longitude: true } },
-            },
-          })
+          where: { id: viewerId },
+          select: {
+            id: true,
+            location: { select: { latitude: true, longitude: true } },
+          },
+        })
         : null;
 
     const viewerWithCoords = viewer
       ? {
-          userId: viewer.id,
-          latitude: viewer.location?.latitude ?? null,
-          longitude: viewer.location?.longitude ?? null,
-        }
+        userId: viewer.id,
+        latitude: viewer.location?.latitude ?? null,
+        longitude: viewer.location?.longitude ?? null,
+      }
       : null;
 
     const canRequestInfo = await computeCanRequest(question, viewerWithCoords);
@@ -654,8 +709,7 @@ export const getQuestionDetail = async (req: AuthedRequest, res: Response) => {
           question.longitude,
         ).toFixed(2),
       );
-      const effectiveRadius = question.answerRadiusKm ?? NEAR_ME_RADIUS;
-      nearMe = distanceKm <= effectiveRadius;
+      nearMe = distanceKm <= NEAR_ME_RADIUS;
     }
 
     return res.status(200).json({
@@ -791,34 +845,57 @@ export const unblockResponder = async (req: AuthedRequest, res: Response) => {
 };
 
 /**
- * POST /questions/:id/answered — questioner-only.
- * Marks question ANSWERED and closes all PENDING requests with CLOSED_ANSWERED.
- * Emits `question:answered` + a closing SYSTEM message to each affected responder.
+ * POST /questions/:id/close — questioner-only.
+ * Marks question CLOSED with a reason, closes pending requests, and emits `question:closed`.
  */
-export const markQuestionAnswered = async (req: AuthedRequest, res: Response) => {
+export const closeQuestion = async (req: AuthedRequest, res: Response) => {
   try {
     const { id } = req.params;
     const userId = req.user!.userId;
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+
+    if (!reason) {
+      return res.status(400).json({ error: 'A close reason is required' });
+    }
+    if (reason.length > MAX_CLOSE_REASON_LENGTH) {
+      return res.status(400).json({ error: 'Close reason is too long' });
+    }
 
     const question = await prisma.question.findUnique({ where: { id } });
     if (!question) {
       return res.status(404).json({ error: 'Question not found' });
     }
     if (question.userId !== userId) {
-      return res.status(403).json({ error: 'Only the questioner can mark this question as answered' });
+      return res.status(403).json({ error: 'Only the questioner can close this question' });
     }
-    if (question.status === QuestionStatus.ANSWERED) {
-      return res.status(200).json({ message: 'Question already marked as answered' });
-    }
-    if (question.status === QuestionStatus.CANCELLED) {
-      return res.status(409).json({ error: 'Cannot mark a cancelled question as answered' });
+    if (question.status === QuestionStatus.CLOSED) {
+      return res.status(200).json({
+        message: 'Question already closed',
+        data: {
+          id: question.id,
+          status: question.status,
+          closeReason: question.closeReason,
+          closedAt: question.closedAt?.toISOString() ?? null,
+          answeredAt: question.answeredAt?.toISOString() ?? null,
+        },
+      });
     }
 
     const now = new Date();
+    const isAnsweredClose = reason === CLOSE_REASON_QUESTION_ANSWERED;
+    const systemMessageText = isAnsweredClose
+      ? 'Question has been answered.'
+      : 'Question has been closed.';
+
     const [updated, pendingRequests] = await Promise.all([
       prisma.question.update({
         where: { id },
-        data: { status: QuestionStatus.ANSWERED, answeredAt: now },
+        data: {
+          status: QuestionStatus.CLOSED,
+          closeReason: reason,
+          closedAt: now,
+          answeredAt: isAnsweredClose ? now : question.answeredAt,
+        },
       }),
       prisma.answerRequest.findMany({
         where: { questionId: id, status: AnswerRequestStatus.PENDING },
@@ -838,82 +915,38 @@ export const markQuestionAnswered = async (req: AuthedRequest, res: Response) =>
             questionId: id,
             answerRequestId: r.id,
             senderId: userId,
-            text: 'Question has been answered.',
+            text: systemMessageText,
             visibleToUserId: r.responderId,
-          }).catch((err) =>
-            console.error('markQuestionAnswered system message failed', err),
-          ),
+          }).catch((err) => console.error('closeQuestion system message failed', err)),
         ),
       );
     }
 
-    const payload = { questionId: id, status: QuestionStatus.ANSWERED, answeredAt: now.toISOString() };
-    emitToUser(userId, 'question:answered', payload);
+    const payload = {
+      questionId: id,
+      status: QuestionStatus.CLOSED,
+      closeReason: reason,
+      closedAt: now.toISOString(),
+      answeredAt: updated.answeredAt?.toISOString() ?? null,
+    };
+    emitToUser(userId, 'question:closed', payload);
     for (const r of pendingRequests) {
-      emitToUser(r.responderId, 'question:answered', payload);
+      emitToUser(r.responderId, 'question:closed', payload);
     }
 
     return res.status(200).json({
-      message: 'Question marked as answered',
-      data: { id: updated.id, status: updated.status, answeredAt: updated.answeredAt?.toISOString() ?? null },
+      message: 'Question closed',
+      data: {
+        id: updated.id,
+        status: updated.status,
+        closeReason: updated.closeReason,
+        closedAt: updated.closedAt?.toISOString() ?? null,
+        answeredAt: updated.answeredAt?.toISOString() ?? null,
+      },
     });
   } catch (error) {
-    console.error('markQuestionAnswered error:', error);
-    return res.status(500).json({ error: 'Failed to mark question as answered' });
-  }
-};
-
-/**
- * DELETE /questions/:id — questioner-only. Marks CANCELLED. Idempotent.
- */
-export const cancelQuestion = async (req: AuthedRequest, res: Response) => {
-  try {
-    const { id } = req.params;
-    const userId = req.user!.userId;
-
-    const question = await prisma.question.findUnique({ where: { id } });
-    if (!question) {
-      return res.status(404).json({ error: 'Question not found' });
-    }
-    if (question.userId !== userId) {
-      return res.status(403).json({ error: 'Only the questioner can cancel this question' });
-    }
-    if (question.status === QuestionStatus.CANCELLED) {
-      return res.status(200).json({ message: 'Question already cancelled' });
-    }
-
-    const now = new Date();
-    const [updated, openRequests] = await Promise.all([
-      prisma.question.update({
-        where: { id },
-        data: { status: QuestionStatus.CANCELLED },
-      }),
-      prisma.answerRequest.findMany({
-        where: { questionId: id, status: AnswerRequestStatus.PENDING },
-        select: { id: true, responderId: true },
-      }),
-    ]);
-
-    if (openRequests.length > 0) {
-      await prisma.answerRequest.updateMany({
-        where: { id: { in: openRequests.map((r) => r.id) } },
-        data: { status: AnswerRequestStatus.CLOSED_ANSWERED, respondedAt: now },
-      });
-    }
-
-    const payload = { questionId: id, status: QuestionStatus.CANCELLED };
-    emitToUser(userId, 'question:cancelled', payload);
-    for (const r of openRequests) {
-      emitToUser(r.responderId, 'question:cancelled', payload);
-    }
-
-    return res.status(200).json({
-      message: 'Question cancelled',
-      data: { id: updated.id, status: updated.status },
-    });
-  } catch (error) {
-    console.error('cancelQuestion error:', error);
-    return res.status(500).json({ error: 'Failed to cancel question' });
+    console.error('closeQuestion error:', error);
+    return res.status(500).json({ error: 'Failed to close question' });
   }
 };
 

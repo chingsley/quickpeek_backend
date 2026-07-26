@@ -63,8 +63,7 @@ model Category {
 
 enum QuestionStatus {
   OPEN
-  ANSWERED
-  CANCELLED
+  CLOSED
 }
 
 enum ReviewerRole {
@@ -105,6 +104,8 @@ model Question {
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
   answeredAt          DateTime?
+  closedAt            DateTime?
+  closeReason         String?
 
   category   Category       @relation(fields: [categoryId], references: [id])
   user       User           @relation("CreatedQuestions", fields: [userId], references: [id], onDelete: Cascade)

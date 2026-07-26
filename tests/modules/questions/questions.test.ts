@@ -20,7 +20,7 @@ const createCategory = async (slug = 'location') =>
     update: {},
   });
 
-describe('questions marketplace', () => {
+describe('questions', () => {
   let questioner: { id: string; token: string; };
   let responder: { id: string; token: string; };
   let farAwayResponder: { id: string; token: string; };
@@ -130,7 +130,7 @@ describe('questions marketplace', () => {
       const u = await createAuthUser({ email: 'author@qp.com', username: 'author' });
       questioner = { id: u.id, token: u.token };
 
-      // 3 OPEN, 1 ANSWERED, 1 CANCELLED
+      // 3 OPEN, 2 CLOSED
       for (const title of ['Open One', 'Open Two', 'Open Three']) {
         await prisma.question.create({
           data: {
@@ -146,25 +146,29 @@ describe('questions marketplace', () => {
       }
       await prisma.question.create({
         data: {
-          title: 'Answered One',
+          title: 'Closed Answered One',
           detail: 'detail body',
           categoryId,
           price: 5,
           acceptanceCriteria: 'criteria',
           userId: u.id,
-          status: QuestionStatus.ANSWERED,
+          status: QuestionStatus.CLOSED,
           answeredAt: new Date(),
+          closedAt: new Date(),
+          closeReason: 'Question answered',
         },
       });
       await prisma.question.create({
         data: {
-          title: 'Cancelled One',
+          title: 'Closed Other One',
           detail: 'detail body',
           categoryId,
           price: 5,
           acceptanceCriteria: 'criteria',
           userId: u.id,
-          status: QuestionStatus.CANCELLED,
+          status: QuestionStatus.CLOSED,
+          closedAt: new Date(),
+          closeReason: 'No longer need the information',
         },
       });
     });
@@ -227,6 +231,66 @@ describe('questions marketplace', () => {
         expect(q.distanceKm).toBeLessThanOrEqual(1);
       }
     });
+
+    it('nearMe filter returns incoming questions within NEAR_ME_RADIUS only', async () => {
+      const viewer = await createAuthUser({
+        email: 'near-filter@qp.com',
+        username: 'near_filter',
+        location: { latitude: 44.6126, longitude: -63.6192 },
+      });
+      const closeIncoming = await prisma.question.create({
+        data: {
+          title: 'Near Filter Close',
+          detail: 'detail',
+          categoryId,
+          price: 1,
+          acceptanceCriteria: 'criteria',
+          userId: questioner.id,
+          latitude: 44.6126,
+          longitude: -63.6192,
+          answerRadiusKm: 0.1,
+        },
+      });
+      const edgeIncoming = await prisma.question.create({
+        data: {
+          title: 'Near Filter Edge',
+          detail: 'detail',
+          categoryId,
+          price: 1,
+          acceptanceCriteria: 'criteria',
+          userId: questioner.id,
+          latitude: 44.657,
+          longitude: -63.6192,
+          answerRadiusKm: 5,
+        },
+      });
+      await prisma.question.create({
+        data: {
+          title: 'Near Filter Own Outgoing',
+          detail: 'detail',
+          categoryId,
+          price: 1,
+          acceptanceCriteria: 'criteria',
+          userId: viewer.id,
+          latitude: 44.6126,
+          longitude: -63.6192,
+          answerRadiusKm: 5,
+        },
+      });
+
+      const res = await request(app)
+        .get('/api/v1/questions/feed?lat=44.6126&lng=-63.6192&nearMe=true')
+        .set('Authorization', `Bearer ${viewer.token}`);
+
+      expect(res.status).toBe(200);
+      const titles = res.body.data.items.map((q: any) => q.title);
+      expect(titles).toContain('Near Filter Close');
+      expect(titles).toContain('Near Filter Edge');
+      expect(titles).not.toContain('Near Filter Own Outgoing');
+
+      void closeIncoming;
+      void edgeIncoming;
+    });
   });
 
   describe('GET /api/v1/questions/feed (authenticated viewers)', () => {
@@ -274,7 +338,12 @@ describe('questions marketplace', () => {
         answerRadiusKm: 5,
       });
       await mk('New Section Q');
-      const answeredStatusQ = await mk('Answered Status Q', { status: QuestionStatus.ANSWERED, answeredAt: new Date() });
+      const answeredStatusQ = await mk('Answered Status Q', {
+        status: QuestionStatus.CLOSED,
+        answeredAt: new Date(),
+        closedAt: new Date(),
+        closeReason: 'Question answered',
+      });
 
       pendingQuestionId = pendingQ.id;
       approvedQuestionId = approvedQ.id;
@@ -455,7 +524,7 @@ describe('questions marketplace', () => {
       expect(groupedItems[0].incomingRequest).toBeDefined();
     });
 
-    it('excludes ANSWERED questions from feed items', async () => {
+    it('excludes CLOSED questions from feed items', async () => {
       const res = await request(app)
         .get('/api/v1/questions/feed')
         .set('Authorization', `Bearer ${feedResponder.token}`);
@@ -477,6 +546,145 @@ describe('questions marketplace', () => {
       expect(res.status).toBe(200);
       expect(res.body.data.items).toBeDefined();
       expect(res.body.data.counts).toBeUndefined();
+    });
+  });
+
+  describe('GET /api/v1/questions/feed priority ordering', () => {
+    let priorityViewer: { id: string; token: string; };
+    let priorityAuthor: { id: string; token: string; };
+
+    beforeAll(async () => {
+      await clearDatabase();
+      const cat = await createCategory('priority-sort');
+      categoryId = cat.id;
+      priorityAuthor = await createAuthUser({
+        email: 'priority-author@qp.com',
+        username: 'priority_author',
+      });
+      priorityViewer = await createAuthUser({
+        email: 'priority-viewer@qp.com',
+        username: 'priority_viewer',
+        location: { latitude: 44.6126, longitude: -63.6192 },
+      });
+
+      const mkQuestion = (title: string, extra: Record<string, any> = {}) =>
+        prisma.question.create({
+          data: {
+            title,
+            detail: 'detail body',
+            categoryId,
+            price: 5,
+            acceptanceCriteria: 'criteria',
+            userId: priorityAuthor.id,
+            status: QuestionStatus.OPEN,
+            ...extra,
+          },
+        });
+
+      const unreadOlderQ = await mkQuestion('Unread Older');
+      const unreadNewerQ = await mkQuestion('Unread Newer');
+      const nearbyCloseQ = await mkQuestion('Nearby Close', {
+        latitude: 44.6126,
+        longitude: -63.6192,
+        answerRadiusKm: 5,
+      });
+      const nearbyFarQ = await mkQuestion('Nearby Far', {
+        latitude: 44.62,
+        longitude: -63.62,
+        answerRadiusKm: 5,
+      });
+      const incomingOlderQ = await mkQuestion('Incoming Older', {
+        latitude: 45.0,
+        longitude: -64.0,
+        createdAt: new Date('2026-01-01T10:00:00.000Z'),
+      });
+      const incomingNewerQ = await mkQuestion('Incoming Newer', {
+        latitude: 45.1,
+        longitude: -64.1,
+        createdAt: new Date('2026-01-02T10:00:00.000Z'),
+      });
+      await prisma.question.create({
+        data: {
+          title: 'Outgoing Older',
+          detail: 'detail body',
+          categoryId,
+          price: 5,
+          acceptanceCriteria: 'criteria',
+          userId: priorityViewer.id,
+          status: QuestionStatus.OPEN,
+          createdAt: new Date('2026-01-01T08:00:00.000Z'),
+        },
+      });
+      await prisma.question.create({
+        data: {
+          title: 'Outgoing Newer',
+          detail: 'detail body',
+          categoryId,
+          price: 5,
+          acceptanceCriteria: 'criteria',
+          userId: priorityViewer.id,
+          status: QuestionStatus.OPEN,
+          createdAt: new Date('2026-01-03T08:00:00.000Z'),
+        },
+      });
+
+      const mkAcceptedRequest = async (questionId: string) =>
+        prisma.answerRequest.create({
+          data: {
+            questionId,
+            responderId: priorityViewer.id,
+            questionerId: priorityAuthor.id,
+            status: 'ACCEPTED',
+            respondedAt: new Date(),
+          },
+        });
+
+      const unreadOlderReq = await mkAcceptedRequest(unreadOlderQ.id);
+      const unreadNewerReq = await mkAcceptedRequest(unreadNewerQ.id);
+      await mkAcceptedRequest(nearbyCloseQ.id);
+      await mkAcceptedRequest(nearbyFarQ.id);
+      await mkAcceptedRequest(incomingOlderQ.id);
+      await mkAcceptedRequest(incomingNewerQ.id);
+
+      await prisma.message.create({
+        data: {
+          questionId: unreadOlderQ.id,
+          answerRequestId: unreadOlderReq.id,
+          senderId: priorityAuthor.id,
+          text: 'Older unread',
+          type: 'USER',
+          createdAt: new Date('2026-07-01T10:00:00.000Z'),
+        },
+      });
+      await prisma.message.create({
+        data: {
+          questionId: unreadNewerQ.id,
+          answerRequestId: unreadNewerReq.id,
+          senderId: priorityAuthor.id,
+          text: 'Newer unread',
+          type: 'USER',
+          createdAt: new Date('2026-07-02T10:00:00.000Z'),
+        },
+      });
+    });
+
+    it('orders unread FIFO, then nearby distance, then incoming/outgoing chronology', async () => {
+      const res = await request(app)
+        .get('/api/v1/questions/feed?lat=44.6126&lng=-63.6192')
+        .set('Authorization', `Bearer ${priorityViewer.token}`);
+
+      expect(res.status).toBe(200);
+      const titles = res.body.data.items.map((q: any) => q.title);
+      expect(titles).toEqual([
+        'Unread Older',
+        'Unread Newer',
+        'Nearby Close',
+        'Nearby Far',
+        'Incoming Newer',
+        'Incoming Older',
+        'Outgoing Newer',
+        'Outgoing Older',
+      ]);
     });
   });
 
@@ -599,25 +807,35 @@ describe('questions marketplace', () => {
       expect(res.body.data.canRequestReason).toBe('OUTSIDE_RADIUS');
     });
 
-    it('returns canRequest=false ANSWERED when question is answered', async () => {
+    it('returns canRequest=false CLOSED when question is closed', async () => {
       await prisma.question.update({
         where: { id: detailQuestionId },
-        data: { status: QuestionStatus.ANSWERED, answeredAt: new Date() },
+        data: {
+          status: QuestionStatus.CLOSED,
+          answeredAt: new Date(),
+          closedAt: new Date(),
+          closeReason: 'Question answered',
+        },
       });
       const res = await request(app)
         .get(`/api/v1/questions/${detailQuestionId}`)
         .set('Authorization', `Bearer ${responder.token}`);
-      expect(res.body.data.canRequestReason).toBe('ANSWERED');
+      expect(res.body.data.canRequestReason).toBe('CLOSED');
 
       // Reset for later tests
       await prisma.question.update({
         where: { id: detailQuestionId },
-        data: { status: QuestionStatus.OPEN, answeredAt: null },
+        data: {
+          status: QuestionStatus.OPEN,
+          answeredAt: null,
+          closedAt: null,
+          closeReason: null,
+        },
       });
     });
   });
 
-  describe('POST /api/v1/questions/:id/answered', () => {
+  describe('POST /api/v1/questions/:id/close', () => {
     let targetId: string;
     let pendingRequestIds: string[];
 
@@ -625,15 +843,15 @@ describe('questions marketplace', () => {
       await clearDatabase();
       const cat = await createCategory();
       categoryId = cat.id;
-      const q = await createAuthUser({ email: 'ans-q@qp.com', username: 'ans_q' });
-      const r1 = await createAuthUser({ email: 'ans-r1@qp.com', username: 'ans_r1' });
-      const r2 = await createAuthUser({ email: 'ans-r2@qp.com', username: 'ans_r2' });
+      const q = await createAuthUser({ email: 'close-q@qp.com', username: 'close_q' });
+      const r1 = await createAuthUser({ email: 'close-r1@qp.com', username: 'close_r1' });
+      const r2 = await createAuthUser({ email: 'close-r2@qp.com', username: 'close_r2' });
       questioner = { id: q.id, token: q.token };
       responder = { id: r1.id, token: r1.token };
 
       const question = await prisma.question.create({
         data: {
-          title: 'To be answered',
+          title: 'To be closed',
           detail: 'detail',
           categoryId,
           price: 5,
@@ -656,58 +874,70 @@ describe('questions marketplace', () => {
 
     it('rejects non-questioner', async () => {
       const res = await request(app)
-        .post(`/api/v1/questions/${targetId}/answered`)
-        .set('Authorization', `Bearer ${responder.token}`);
+        .post(`/api/v1/questions/${targetId}/close`)
+        .set('Authorization', `Bearer ${responder.token}`)
+        .send({ reason: 'Question answered' });
       expect(res.status).toBe(403);
     });
 
-    it('marks ANSWERED and closes pending requests', async () => {
+    it('requires a close reason', async () => {
       const res = await request(app)
-        .post(`/api/v1/questions/${targetId}/answered`)
-        .set('Authorization', `Bearer ${questioner.token}`);
+        .post(`/api/v1/questions/${targetId}/close`)
+        .set('Authorization', `Bearer ${questioner.token}`)
+        .send({ reason: '' });
+      expect(res.status).toBe(400);
+    });
+
+    it('closes as answered and closes pending requests', async () => {
+      const res = await request(app)
+        .post(`/api/v1/questions/${targetId}/close`)
+        .set('Authorization', `Bearer ${questioner.token}`)
+        .send({ reason: 'Question answered' });
 
       expect(res.status).toBe(200);
-      expect(res.body.data.status).toBe('ANSWERED');
+      expect(res.body.data.status).toBe('CLOSED');
+      expect(res.body.data.closeReason).toBe('Question answered');
 
       const dbQ = await prisma.question.findUnique({ where: { id: targetId } });
-      expect(dbQ?.status).toBe(QuestionStatus.ANSWERED);
+      expect(dbQ?.status).toBe(QuestionStatus.CLOSED);
       expect(dbQ?.answeredAt).not.toBeNull();
+      expect(dbQ?.closedAt).not.toBeNull();
 
       const closed = await prisma.answerRequest.findMany({
         where: { id: { in: pendingRequestIds } },
       });
       expect(closed.every((r) => r.status === 'CLOSED_ANSWERED')).toBe(true);
 
-      // Closing system messages were created for each responder.
       const messages = await prisma.message.findMany({
         where: { answerRequestId: { in: pendingRequestIds }, type: 'SYSTEM' },
       });
       expect(messages.length).toBeGreaterThanOrEqual(2);
     });
 
-    it('is idempotent on already-answered questions', async () => {
+    it('is idempotent on already-closed questions', async () => {
       const res = await request(app)
-        .post(`/api/v1/questions/${targetId}/answered`)
-        .set('Authorization', `Bearer ${questioner.token}`);
+        .post(`/api/v1/questions/${targetId}/close`)
+        .set('Authorization', `Bearer ${questioner.token}`)
+        .send({ reason: 'Question answered' });
       expect(res.status).toBe(200);
     });
   });
 
-  describe('DELETE /api/v1/questions/:id (cancel)', () => {
-    let cancelId: string;
+  describe('POST /api/v1/questions/:id/close (other reason)', () => {
+    let closeId: string;
 
     beforeAll(async () => {
       await clearDatabase();
       const cat = await createCategory();
       categoryId = cat.id;
-      const q = await createAuthUser({ email: 'can-q@qp.com', username: 'can_q' });
-      const r = await createAuthUser({ email: 'can-r@qp.com', username: 'can_r' });
+      const q = await createAuthUser({ email: 'close2-q@qp.com', username: 'close2_q' });
+      const r = await createAuthUser({ email: 'close2-r@qp.com', username: 'close2_r' });
       questioner = { id: q.id, token: q.token };
       responder = { id: r.id, token: r.token };
 
       const question = await prisma.question.create({
         data: {
-          title: 'To be cancelled',
+          title: 'To be closed without answered',
           detail: 'detail',
           categoryId,
           price: 5,
@@ -715,32 +945,26 @@ describe('questions marketplace', () => {
           userId: q.id,
         },
       });
-      cancelId = question.id;
+      closeId = question.id;
       await prisma.answerRequest.create({
-        data: { questionId: cancelId, responderId: r.id, questionerId: q.id, status: 'PENDING' },
+        data: { questionId: closeId, responderId: r.id, questionerId: q.id, status: 'PENDING' },
       });
     });
 
-    it('rejects non-questioner', async () => {
+    it('closes without setting answeredAt for non-answered reasons', async () => {
       const res = await request(app)
-        .delete(`/api/v1/questions/${cancelId}`)
-        .set('Authorization', `Bearer ${responder.token}`);
-      expect(res.status).toBe(403);
-    });
+        .post(`/api/v1/questions/${closeId}/close`)
+        .set('Authorization', `Bearer ${questioner.token}`)
+        .send({ reason: 'No longer need the information' });
 
-    it('cancels the question and closes pending requests', async () => {
-      const res = await request(app)
-        .delete(`/api/v1/questions/${cancelId}`)
-        .set('Authorization', `Bearer ${questioner.token}`);
       expect(res.status).toBe(200);
-      expect(res.body.data.status).toBe('CANCELLED');
-    });
+      expect(res.body.data.status).toBe('CLOSED');
+      expect(res.body.data.closeReason).toBe('No longer need the information');
 
-    it('is idempotent on already-cancelled questions', async () => {
-      const res = await request(app)
-        .delete(`/api/v1/questions/${cancelId}`)
-        .set('Authorization', `Bearer ${questioner.token}`);
-      expect(res.status).toBe(200);
+      const dbQ = await prisma.question.findUnique({ where: { id: closeId } });
+      expect(dbQ?.status).toBe(QuestionStatus.CLOSED);
+      expect(dbQ?.answeredAt).toBeNull();
+      expect(dbQ?.closedAt).not.toBeNull();
     });
   });
 });

@@ -95,7 +95,7 @@ const fetchRequestWithQuestion = (id: string) =>
 
 /**
  * POST /questions/:id/requests
- * Responder-only. Guards: own question, already requested, ANSWERED, outside radius.
+ * Responder-only. Guards: own question, already requested, closed question, outside radius.
  * On success: AnswerRequest PENDING + 2 role-specific SYSTEM messages + emit request:new.
  */
 export const createRequest = async (req: AuthedRequest, res: Response) => {
@@ -112,11 +112,8 @@ export const createRequest = async (req: AuthedRequest, res: Response) => {
       return res.status(400).json({ error: 'You cannot request to answer your own question' });
     }
 
-    if (question.status === QuestionStatus.ANSWERED) {
-      return res.status(409).json({ error: 'This question has been answered' });
-    }
-    if (question.status === QuestionStatus.CANCELLED) {
-      return res.status(409).json({ error: 'This question has been cancelled' });
+    if (question.status === QuestionStatus.CLOSED) {
+      return res.status(409).json({ error: 'This question has been closed' });
     }
 
     const activeBlock = await getActiveBlock(questionId, responderId);

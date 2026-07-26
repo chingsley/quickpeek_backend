@@ -229,8 +229,9 @@ async function seed() {
       categorySlug: 'cooking',
       price: 4,
       acceptanceCriteria: 'Recipe that has been tested at altitude, with photos if possible.',
-      status: QuestionStatus.ANSWERED,
+      status: QuestionStatus.CLOSED,
       withLocation: false,
+      closeReason: 'Question answered',
     },
     {
       title: 'Looking for a bike mechanic',
@@ -238,8 +239,9 @@ async function seed() {
       categorySlug: 'services',
       price: 25,
       acceptanceCriteria: 'A reachable contact or booking confirmation.',
-      status: QuestionStatus.CANCELLED,
+      status: QuestionStatus.CLOSED,
       withLocation: true,
+      closeReason: 'No longer need the information',
     },
   ];
 
@@ -268,7 +270,13 @@ async function seed() {
         answerRadiusKm: qdef.withLocation ? 3 : null,
         userId: test03.id,
         status: qdef.status,
-        answeredAt: qdef.status === QuestionStatus.ANSWERED ? new Date(Date.now() - 60 * 60 * 1000) : null,
+        answeredAt:
+          qdef.closeReason === 'Question answered'
+            ? new Date(Date.now() - 60 * 60 * 1000)
+            : null,
+        closedAt:
+          qdef.status === QuestionStatus.CLOSED ? new Date(Date.now() - 60 * 60 * 1000) : null,
+        closeReason: qdef.closeReason ?? null,
       },
     });
     outboxQuestions.push({ id: question.id, title: question.title });

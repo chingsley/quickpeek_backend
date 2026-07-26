@@ -250,3 +250,152 @@ export const loadViewerRequestMap = async (viewerId: string, questionIds: string
 
   return { requestMap, blockMap };
 };
+
+export type QuestionFeedAttention = {
+  hasAttention: boolean;
+  unreadMessageCount: number;
+  /** Earliest unread message timestamp for FIFO feed ordering. */
+  earliestUnreadAt: string | null;
+  pendingIncomingCount: number;
+  acceptedChatCount: number;
+  primaryChatRequestId: string | null;
+};
+
+const EMPTY_QUESTION_FEED_ATTENTION: QuestionFeedAttention = {
+  hasAttention: false,
+  unreadMessageCount: 0,
+  earliestUnreadAt: null,
+  pendingIncomingCount: 0,
+  acceptedChatCount: 0,
+  primaryChatRequestId: null,
+};
+
+const loadEarliestUnreadAtByQuestion = async (
+  viewerId: string,
+  questionIds: string[],
+): Promise<Map<string, Date>> => {
+  if (questionIds.length === 0) {
+    return new Map();
+  }
+
+  const messages = await prisma.message.findMany({
+    where: {
+      questionId: { in: questionIds },
+      senderId: { not: viewerId },
+      readAt: null,
+      OR: [{ visibleToUserId: null }, { visibleToUserId: viewerId }],
+    },
+    select: {
+      questionId: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  const earliestByQuestion = new Map<string, Date>();
+  for (const message of messages) {
+    if (!earliestByQuestion.has(message.questionId)) {
+      earliestByQuestion.set(message.questionId, message.createdAt);
+    }
+  }
+
+  return earliestByQuestion;
+};
+
+/** Per-question attention state for the Home feed (unread chats + pending approvals). */
+export const loadQuestionFeedAttentionMap = async (
+  viewerId: string,
+  questions: Array<{ id: string; userId: string }>,
+): Promise<Map<string, QuestionFeedAttention>> => {
+  const result = new Map<string, QuestionFeedAttention>();
+  if (questions.length === 0) {
+    return result;
+  }
+
+  const questionIds = questions.map((q) => q.id);
+  const ownerByQuestion = new Map(questions.map((q) => [q.id, q.userId]));
+
+  const allRequests = await prisma.answerRequest.findMany({
+    where: { questionId: { in: questionIds } },
+    select: {
+      id: true,
+      questionId: true,
+      questionerId: true,
+      responderId: true,
+      status: true,
+    },
+  });
+
+  const requestIds = allRequests.map((r) => r.id);
+  const [unreadMap, earliestUnreadByQuestion] = await Promise.all([
+    (async () => {
+      const map = new Map<string, number>();
+      if (requestIds.length === 0) {
+        return map;
+      }
+
+      const unreadGroups = await prisma.message.groupBy({
+        by: ['answerRequestId'],
+        where: {
+          answerRequestId: { in: requestIds },
+          senderId: { not: viewerId },
+          readAt: null,
+          OR: [{ visibleToUserId: null }, { visibleToUserId: viewerId }],
+        },
+        _count: { id: true },
+      });
+      unreadGroups.forEach((g) => map.set(g.answerRequestId, g._count.id));
+      return map;
+    })(),
+    loadEarliestUnreadAtByQuestion(viewerId, questionIds),
+  ]);
+
+  for (const questionId of questionIds) {
+    const isOwner = ownerByQuestion.get(questionId) === viewerId;
+    const reqs = allRequests.filter((r) => r.questionId === questionId);
+
+    if (isOwner) {
+      const ownerReqs = reqs.filter((r) => r.questionerId === viewerId);
+      const pendingIncomingCount = ownerReqs.filter(
+        (r) => r.status === AnswerRequestStatus.PENDING,
+      ).length;
+      const accepted = ownerReqs.filter((r) => r.status === AnswerRequestStatus.ACCEPTED);
+      const unreadMessageCount = ownerReqs.reduce(
+        (sum, r) => sum + (unreadMap.get(r.id) ?? 0),
+        0,
+      );
+
+      const earliestUnreadAt = earliestUnreadByQuestion.get(questionId);
+
+      result.set(questionId, {
+        pendingIncomingCount,
+        acceptedChatCount: accepted.length,
+        unreadMessageCount,
+        earliestUnreadAt: earliestUnreadAt?.toISOString() ?? null,
+        primaryChatRequestId: accepted.length === 1 ? accepted[0].id : null,
+        hasAttention: unreadMessageCount > 0 || pendingIncomingCount > 0,
+      });
+    } else {
+      const viewerReq = reqs.find((r) => r.responderId === viewerId);
+      const unreadMessageCount = viewerReq ? (unreadMap.get(viewerReq.id) ?? 0) : 0;
+      const earliestUnreadAt = earliestUnreadByQuestion.get(questionId);
+
+      result.set(questionId, {
+        pendingIncomingCount: 0,
+        acceptedChatCount:
+          viewerReq?.status === AnswerRequestStatus.ACCEPTED ? 1 : 0,
+        unreadMessageCount,
+        earliestUnreadAt: earliestUnreadAt?.toISOString() ?? null,
+        primaryChatRequestId: viewerReq?.id ?? null,
+        hasAttention: unreadMessageCount > 0,
+      });
+    }
+  }
+
+  return result;
+};
+
+export const getQuestionFeedAttention = (
+  map: Map<string, QuestionFeedAttention>,
+  questionId: string,
+): QuestionFeedAttention => map.get(questionId) ?? EMPTY_QUESTION_FEED_ATTENTION;

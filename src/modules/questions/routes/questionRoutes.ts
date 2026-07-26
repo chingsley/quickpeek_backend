@@ -9,8 +9,8 @@ import {
   searchQuestions,
   getUserPostedQuestions,
   getQuestionDetail,
-  markQuestionAnswered,
-  cancelQuestion,
+  closeQuestion,
+  getCloseReasons,
   getRejectedResponders,
   unblockResponder,
 } from '../controllers/questionController';
@@ -28,13 +28,13 @@ router.get('/search', optionalAuthenticateToken, searchQuestions);
 // Authenticated
 router.post('/', authenticateToken, questionCreationLimiter, validateQuestionCreation, createQuestion);
 router.get('/mine', authenticateToken, getUserPostedQuestions);
+router.get('/close-reasons', authenticateToken, getCloseReasons);
 
 // Per-question
 router.get('/:id/rejected-responders', authenticateToken, getRejectedResponders);
 router.delete('/:id/rejected-responders/:responderId', authenticateToken, unblockResponder);
 router.get('/:id', authenticateToken, getQuestionDetail);
-router.post('/:id/answered', authenticateToken, markQuestionAnswered);
+router.post('/:id/close', authenticateToken, closeQuestion);
 router.post('/:id/requests', authenticateToken, createRequest);
-router.delete('/:id', authenticateToken, cancelQuestion);
 
 export default router;

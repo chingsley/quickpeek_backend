@@ -1,4 +1,4 @@
-import { AnswerRequest, AnswerRequestStatus, Question, QuestionStatus, ReviewerRole } from '@prisma/client';
+import { AnswerRequest, AnswerRequestStatus, Question, ReviewerRole } from '@prisma/client';
 import prisma from '../../core/database/prisma/client';
 import { RatingRole } from '@prisma/client';
 import { recomputeUserRatingAggregate } from './ratings';
@@ -17,7 +17,7 @@ type RequestWithQuestion = {
   status: AnswerRequestStatus;
   questionerId: string;
   responderId: string;
-  question: Pick<Question, 'id' | 'status'>;
+  question: Pick<Question, 'id' | 'status' | 'answeredAt'>;
 };
 
 const getMessageCountsByRole = async (request: RequestWithQuestion) => {
@@ -34,8 +34,8 @@ const getMessageCountsByRole = async (request: RequestWithQuestion) => {
 };
 
 /**
- * Review unlock rules (per marketplace request):
- *   - request is ACCEPTED and question is ANSWERED, OR
+ * Review unlock rules:
+ *   - request is ACCEPTED and question was closed as answered (answeredAt set), OR
  *   - activity threshold (4 responder + 3 questioner messages) met.
  */
 export const getReviewUnlockReason = async (
@@ -45,7 +45,7 @@ export const getReviewUnlockReason = async (
     return null;
   }
 
-  if (request.question.status === QuestionStatus.ANSWERED) {
+  if (request.question.answeredAt != null) {
     return 'marked_answered';
   }
 

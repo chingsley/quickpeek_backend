@@ -8,6 +8,7 @@ import categoryRoutes from './modules/categories/routes/categoryRoutes';
 import requestRoutes from './modules/requests/routes/requestRoutes';
 import healthRoutes from './api/routes/healthRoute';
 import userRoutes from './modules/users/routes/userRoutes';
+import configRoutes from './modules/config/routes/configRoutes';
 
 const app = express();
 
@@ -28,6 +29,7 @@ app.use((req, res, next) => {
 app.use(loggingMiddleware);
 
 app.use('/api/v1/health', healthRoutes);
+app.use('/api/v1/config', configRoutes);
 app.use('/api/v1/questions', questionRoutes);
 app.use('/api/v1/categories', categoryRoutes);
 app.use('/api/v1/requests', requestRoutes);

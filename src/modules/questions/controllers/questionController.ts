@@ -15,7 +15,10 @@ import {
   nearbyCacheKey,
   setCachedNearbyQuestions,
 } from '../../../common/utils/cache';
-import { NEAR_ME_RADIUS } from '../../../common/constants/location.constants';
+import {
+  getMarketConfigValue,
+  MARKET_CONFIG_KEYS,
+} from '../../../modules/config/configService';
 import {
   buildViewerRequestSummary,
   getActiveBlock,
@@ -50,7 +53,7 @@ const publicQuestionShape = (q: any) => ({
   latitude: q.latitude,
   longitude: q.longitude,
   address: q.address,
-  answerRadiusKm: q.answerRadiusKm,
+  restrictToNearby: q.restrictToNearby,
   status: q.status,
   createdAt: q.createdAt.toISOString(),
   answeredAt: q.answeredAt?.toISOString() ?? null,
@@ -103,7 +106,7 @@ export const createQuestion = async (req: AuthedRequest, res: Response) => {
       latitude,
       longitude,
       address,
-      answerRadiusKm,
+      restrictToNearby,
     } = req.body;
 
     const question = await prisma.question.create({
@@ -116,7 +119,7 @@ export const createQuestion = async (req: AuthedRequest, res: Response) => {
         latitude: latitude ?? null,
         longitude: longitude ?? null,
         address: address ?? null,
-        answerRadiusKm: answerRadiusKm ?? null,
+        restrictToNearby: !!restrictToNearby,
         userId: req.user!.userId,
       },
       include: { category: { select: { id: true, name: true, slug: true } } },
@@ -140,9 +143,12 @@ export const createQuestion = async (req: AuthedRequest, res: Response) => {
  * GET /questions/feed — public feed of OPEN questions.
  * Authenticated viewers receive a flat feed with incoming/outgoing counts.
  * Filters:
- *   ?lat=&lng=           viewer coords (enables distance + nearMe flag)
- *   ?radiusKm=           restrict to within radius of viewer
- *   ?nearMe=true         restrict to incoming questions within NEAR_ME_RADIUS of the viewer
+ *   ?lat=&lng=           viewer coords (enables distance + nearMe flag).
+ *                        Required when nearMe=true — without coords, near-me
+ *                        returns an empty list (the FE prompts the user to
+ *                        enable their location).
+ *   ?nearMe=true         restrict to incoming questions within the market-wide
+ *                        near-me radius of the viewer
  *   ?page=&limit=        pagination (flat feed only)
  */
 export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
@@ -151,27 +157,25 @@ export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
     const { page, limit, skip } = parsePagination(req.query);
     const lat = req.query.lat != null ? parseFloat(String(req.query.lat)) : NaN;
     const lng = req.query.lng != null ? parseFloat(String(req.query.lng)) : NaN;
-    const radiusKm = req.query.radiusKm != null ? parseFloat(String(req.query.radiusKm)) : NaN;
     const filterByNearMe = String(req.query.nearMe ?? '').toLowerCase() === 'true';
     const clientPassedCoords = !Number.isNaN(lat) && !Number.isNaN(lng);
-    let effectiveLat = lat;
-    let effectiveLng = lng;
-    let viewerHasCoords = clientPassedCoords;
+    const effectiveLat = lat;
+    const effectiveLng = lng;
+    const viewerHasCoords = clientPassedCoords;
 
-    if (viewerId && !viewerHasCoords) {
-      const userLocation = await prisma.location.findUnique({
-        where: { userId: viewerId },
-        select: { latitude: true, longitude: true },
-      });
-      if (userLocation) {
-        effectiveLat = userLocation.latitude;
-        effectiveLng = userLocation.longitude;
-        viewerHasCoords = true;
-      }
+    // Viewer position comes only from live GPS sent by the client (lat/lng query
+    // params). We never fall back to the saved locations row — stale coords
+    // must not drive distance, nearMe, or canRequest.
+
+    // Near-me filter requires the viewer's live coords. Without them, the
+    // filter returns an empty list (per the UX spec — the FE shows an
+    // "enable your location" prompt instead).
+    if (filterByNearMe && !viewerHasCoords) {
+      const empty = viewerId
+        ? { items: [] as any[], counts: { all: 0, incoming: 0, outgoing: 0 } }
+        : { items: [] as any[], pagination: { page, limit, total: 0, hasMore: false } };
+      return res.status(200).json({ message: 'Successful', data: empty });
     }
-
-    const useRadiusFilter =
-      clientPassedCoords && !Number.isNaN(radiusKm) && radiusKm > 0;
 
     if (!viewerId && !viewerHasCoords && page === 1) {
       const key = `feed:open:p1:limit${limit}`;
@@ -180,6 +184,8 @@ export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
         return res.status(200).json({ message: 'Successful (cached)', data: cached });
       }
     }
+
+    const nearMeRadiusKm = await getMarketConfigValue(MARKET_CONFIG_KEYS.nearMeRadiusKm);
 
     const where: Prisma.QuestionWhereInput = {
       status: QuestionStatus.OPEN,
@@ -212,13 +218,7 @@ export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
           q.longitude,
         );
         item.distanceKm = Number(distanceKm.toFixed(2));
-        if (useRadiusFilter) {
-          nearMe = distanceKm <= radiusKm;
-        } else {
-          // Viewer-centric proximity for feed icon, filter, and sort — separate from
-          // each question's answerRadiusKm (used for canRequest eligibility).
-          nearMe = distanceKm <= NEAR_ME_RADIUS;
-        }
+        nearMe = distanceKm <= nearMeRadiusKm;
       } else {
         item.distanceKm = null;
       }
@@ -232,22 +232,17 @@ export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
       return item;
     });
 
-    const visible = useRadiusFilter
+    const visible = filterByNearMe
       ? enriched.filter((q: any) => {
-        if (q.viewerRequest) return true;
-        return q.distanceKm != null && q.distanceKm <= radiusKm;
+        if (q.distanceKm == null || q.latitude == null || q.longitude == null) {
+          return false;
+        }
+        if (viewerId && q.userId === viewerId) {
+          return false;
+        }
+        return q.distanceKm <= nearMeRadiusKm;
       })
-      : filterByNearMe
-        ? enriched.filter((q: any) => {
-          if (q.distanceKm == null || q.latitude == null || q.longitude == null) {
-            return false;
-          }
-          if (viewerId && q.userId === viewerId) {
-            return false;
-          }
-          return q.distanceKm <= NEAR_ME_RADIUS;
-        })
-        : enriched;
+      : enriched;
 
     if (viewerId) {
       const awaitingApproval = await buildAwaitingApprovalFeedQuestions(viewerId);
@@ -277,10 +272,9 @@ export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
         feedAttention: getQuestionFeedAttention(attentionMap, item.id),
       }));
 
-      const sortedItems =
-        filterByNearMe || useRadiusFilter
-          ? itemsWithAttention
-          : sortQuestionFeedByDefaultPriority(itemsWithAttention, viewerId);
+      const sortedItems = filterByNearMe
+        ? itemsWithAttention
+        : sortQuestionFeedByDefaultPriority(itemsWithAttention, viewerId);
 
       const incoming = sortedItems.filter((item: any) => item.userId !== viewerId).length;
       const outgoing = sortedItems.filter((item: any) => item.userId === viewerId).length;
@@ -333,7 +327,7 @@ type RawSearchHit = {
   latitude: number | null;
   longitude: number | null;
   address: string | null;
-  answerRadiusKm: number | null;
+  restrictToNearby: boolean;
   status: QuestionStatus;
   createdAt: Date;
   answeredAt: Date | null;
@@ -449,7 +443,7 @@ export const searchQuestions = async (req: AuthedRequest, res: Response) => {
         latitude: h.latitude,
         longitude: h.longitude,
         address: h.address,
-        answerRadiusKm: h.answerRadiusKm,
+        restrictToNearby: h.restrictToNearby,
         status: h.status,
         createdAt: h.createdAt.toISOString(),
         answeredAt: h.answeredAt?.toISOString() ?? null,
@@ -547,7 +541,7 @@ const computeCanRequest = async (
     status: QuestionStatus;
     latitude: number | null;
     longitude: number | null;
-    answerRadiusKm: number | null;
+    restrictToNearby: boolean;
   },
   viewer: { userId: string; latitude?: number | null; longitude?: number | null; } | null,
 ): Promise<{ canRequest: boolean; reason: CanRequestReason | null; existingRequestId: string | null; }> => {
@@ -581,22 +575,24 @@ const computeCanRequest = async (
     }
   }
 
-  // Radius check only if the question has a location + radius.
+  // Proximity check only if the question opted into near-me restriction.
+  // The radius itself comes from market-wide config (single source of truth).
   if (
-    question.answerRadiusKm != null &&
+    question.restrictToNearby &&
     question.latitude != null &&
     question.longitude != null
   ) {
     if (!viewer || viewer.latitude == null || viewer.longitude == null) {
       return { canRequest: false, reason: 'NO_VIEWER_LOCATION', existingRequestId };
     }
+    const nearMeRadiusKm = await getMarketConfigValue(MARKET_CONFIG_KEYS.nearMeRadiusKm);
     const distance = calculateHaversineDistance(
       viewer.latitude,
       viewer.longitude,
       question.latitude,
       question.longitude,
     );
-    if (distance > question.answerRadiusKm) {
+    if (distance > nearMeRadiusKm) {
       return { canRequest: false, reason: 'OUTSIDE_RADIUS', existingRequestId };
     }
   }
@@ -613,6 +609,9 @@ export const getQuestionDetail = async (req: AuthedRequest, res: Response) => {
   try {
     const { id } = req.params;
     const viewerId = req.user?.userId;
+    const queryLat = req.query.lat != null ? parseFloat(String(req.query.lat)) : NaN;
+    const queryLng = req.query.lng != null ? parseFloat(String(req.query.lng)) : NaN;
+    const hasQueryCoords = !Number.isNaN(queryLat) && !Number.isNaN(queryLng);
 
     const question = await prisma.question.findUnique({
       where: { id },
@@ -634,24 +633,14 @@ export const getQuestionDetail = async (req: AuthedRequest, res: Response) => {
       return res.status(404).json({ error: 'Question not found' });
     }
 
-    const viewer =
-      viewerId != null
-        ? await prisma.user.findUnique({
-          where: { id: viewerId },
-          select: {
-            id: true,
-            location: { select: { latitude: true, longitude: true } },
-          },
-        })
-        : null;
-
-    const viewerWithCoords = viewer
-      ? {
-        userId: viewer.id,
-        latitude: viewer.location?.latitude ?? null,
-        longitude: viewer.location?.longitude ?? null,
-      }
-      : null;
+    // Viewer position comes only from live GPS query params — never the saved
+    // locations row.
+    let viewerWithCoords: { userId: string; latitude: number | null; longitude: number | null; } | null = null;
+    if (viewerId) {
+      const latitude = hasQueryCoords ? queryLat : null;
+      const longitude = hasQueryCoords ? queryLng : null;
+      viewerWithCoords = { userId: viewerId, latitude, longitude };
+    }
 
     const canRequestInfo = await computeCanRequest(question, viewerWithCoords);
 
@@ -692,6 +681,8 @@ export const getQuestionDetail = async (req: AuthedRequest, res: Response) => {
       getUserRatingByRole(question.userId, RatingRole.AS_QUESTIONER),
     ]);
 
+    const nearMeRadiusKm = await getMarketConfigValue(MARKET_CONFIG_KEYS.nearMeRadiusKm);
+
     let distanceKm: number | null = null;
     let nearMe = false;
     if (
@@ -709,7 +700,7 @@ export const getQuestionDetail = async (req: AuthedRequest, res: Response) => {
           question.longitude,
         ).toFixed(2),
       );
-      nearMe = distanceKm <= NEAR_ME_RADIUS;
+      nearMe = distanceKm <= nearMeRadiusKm;
     }
 
     return res.status(200).json({

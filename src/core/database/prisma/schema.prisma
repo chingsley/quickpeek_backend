@@ -98,7 +98,7 @@ model Question {
   latitude            Float?
   longitude           Float?
   address             String?
-  answerRadiusKm      Float?
+  restrictToNearby    Boolean        @default(false)
   userId              String
   status              QuestionStatus @default(OPEN)
   createdAt           DateTime       @default(now())
@@ -225,4 +225,14 @@ model UserRating {
 
   @@unique([userId, role])
   @@map("user_ratings")
+}
+
+/// Single-row table of tunable, market-wide runtime config.
+/// Rows are keyed by `key` so future settings can be added without a migration
+/// for each one. Today only `nearMeRadiusKm` is consumed.
+model MarketConfig {
+  key   String @id
+  value Float
+
+  @@map("market_configs")
 }

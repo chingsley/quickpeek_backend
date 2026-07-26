@@ -3,7 +3,6 @@ import { Router } from 'express';
 import {
   registerUser,
   loginUser,
-  updateUserLocation,
   getUserProfile,
   updateUserProfile,
   uploadUserProfileImage,
@@ -13,16 +12,14 @@ import { profileImageUpload } from '../../../api/middlewares/uploadMiddleware';
 import {
   validateUserRegistration,
   validateUserLogin,
-  validateUserLocation,
   validateUserProfileUpdate,
 } from '../middlewares/userMiddleware';
 
 const router = Router();
 
-// Auth + location
+// Auth
 router.post('/', validateUserRegistration, registerUser);
 router.post('/login', validateUserLogin, loginUser);
-router.post('/location', authenticateToken, validateUserLocation, updateUserLocation);
 
 // Profile (authenticated user)
 router.get('/', authenticateToken, getUserProfile);

@@ -1,19 +1,16 @@
 // src / core / queues / index.ts
 
 import { deviceUpdateQueue } from './deviceUpdateQueue';
-import { userLocationUpdateQueue } from './userLocationUpdateQueue';
 import { questionCleanupQueue } from './questionCleanupQueue';
 import { reviewRevealQueue } from './reviewRevealQueue';
 
 import {
   processDeviceUpdate,
-  processUserLocationUpdate,
   cleanupQuestions,
   processReviewReveal,
 } from '../jobs';
 
 deviceUpdateQueue.process(processDeviceUpdate);
-userLocationUpdateQueue.process(processUserLocationUpdate);
 questionCleanupQueue.process(cleanupQuestions);
 reviewRevealQueue.process(processReviewReveal);
 

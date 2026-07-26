@@ -70,7 +70,7 @@ describe('questions', () => {
       expect(res.body.data.category).toMatchObject({ slug: 'other' });
     });
 
-    it('creates a question with location + radius', async () => {
+    it('creates a question with location + restrictToNearby', async () => {
       const res = await request(app)
         .post('/api/v1/questions')
         .set('Authorization', `Bearer ${questioner.token}`)
@@ -79,7 +79,7 @@ describe('questions', () => {
             latitude: 44.6126,
             longitude: -63.6192,
             address: '1 Spring Garden Rd, Halifax, NS',
-            answerRadiusKm: 3,
+            restrictToNearby: true,
           }),
         );
 
@@ -88,7 +88,7 @@ describe('questions', () => {
         latitude: 44.6126,
         longitude: -63.6192,
         address: '1 Spring Garden Rd, Halifax, NS',
-        answerRadiusKm: 3,
+        restrictToNearby: true,
       });
     });
 
@@ -200,7 +200,7 @@ describe('questions', () => {
           latitude: 44.6126,
           longitude: -63.6192,
           address: 'downtown',
-          answerRadiusKm: 3,
+          restrictToNearby: true,
         },
       });
       const far = await prisma.question.create({
@@ -214,7 +214,7 @@ describe('questions', () => {
           latitude: 44.7,
           longitude: -63.7,
           address: 'far away',
-          answerRadiusKm: 3,
+          restrictToNearby: true,
         },
       });
 
@@ -225,14 +225,7 @@ describe('questions', () => {
       expect(byTitle['Geo Far'].nearMe).toBe(false);
     });
 
-    it('restricts to radius when radiusKm provided', async () => {
-      const res = await request(app).get('/api/v1/questions/feed?lat=44.6126&lng=-63.6192&radiusKm=1');
-      for (const q of res.body.data.items) {
-        expect(q.distanceKm).toBeLessThanOrEqual(1);
-      }
-    });
-
-    it('nearMe filter returns incoming questions within NEAR_ME_RADIUS only', async () => {
+    it('nearMe filter returns incoming questions within the market near-me radius only', async () => {
       const viewer = await createAuthUser({
         email: 'near-filter@qp.com',
         username: 'near_filter',
@@ -248,7 +241,7 @@ describe('questions', () => {
           userId: questioner.id,
           latitude: 44.6126,
           longitude: -63.6192,
-          answerRadiusKm: 0.1,
+          restrictToNearby: true,
         },
       });
       const edgeIncoming = await prisma.question.create({
@@ -261,7 +254,7 @@ describe('questions', () => {
           userId: questioner.id,
           latitude: 44.657,
           longitude: -63.6192,
-          answerRadiusKm: 5,
+          restrictToNearby: true,
         },
       });
       await prisma.question.create({
@@ -274,7 +267,7 @@ describe('questions', () => {
           userId: viewer.id,
           latitude: 44.6126,
           longitude: -63.6192,
-          answerRadiusKm: 5,
+          restrictToNearby: true,
         },
       });
 
@@ -290,6 +283,21 @@ describe('questions', () => {
 
       void closeIncoming;
       void edgeIncoming;
+    });
+
+    it('returns an empty list when nearMe is requested without viewer coords', async () => {
+      const viewer = await createAuthUser({
+        email: 'near-nocoords@qp.com',
+        username: 'near_nocoords',
+      });
+
+      const res = await request(app)
+        .get('/api/v1/questions/feed?nearMe=true')
+        .set('Authorization', `Bearer ${viewer.token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.items).toEqual([]);
+      expect(res.body.data.counts).toEqual({ all: 0, incoming: 0, outgoing: 0 });
     });
   });
 
@@ -335,7 +343,7 @@ describe('questions', () => {
       const freshQ = await mk('Fresh Section Q', {
         latitude: 44.6126,
         longitude: -63.6192,
-        answerRadiusKm: 5,
+        restrictToNearby: true,
       });
       await mk('New Section Q');
       const answeredStatusQ = await mk('Answered Status Q', {
@@ -435,7 +443,7 @@ describe('questions', () => {
       expect(res.body.data.counts.outgoing).toBe(0);
     });
 
-    it('flags geographically close questions with nearMe when coords are inferred from saved location', async () => {
+    it('does not set nearMe without live GPS coords, even if the user has a saved location', async () => {
       const res = await request(app)
         .get('/api/v1/questions/feed')
         .set('Authorization', `Bearer ${feedResponder.token}`);
@@ -443,7 +451,8 @@ describe('questions', () => {
       expect(res.status).toBe(200);
       const fresh = res.body.data.items.find((q: any) => q.title === 'Fresh Section Q');
       expect(fresh).toBeTruthy();
-      expect(fresh.nearMe).toBe(true);
+      expect(fresh.nearMe).toBe(false);
+      expect(fresh.distanceKm).toBeNull();
     });
 
     it('includes incomingRequest on questioner own questions with pending requests', async () => {
@@ -583,25 +592,36 @@ describe('questions', () => {
 
       const unreadOlderQ = await mkQuestion('Unread Older');
       const unreadNewerQ = await mkQuestion('Unread Newer');
-      const nearbyCloseQ = await mkQuestion('Nearby Close', {
+      const nearbyNoReqCloseQ = await mkQuestion('Nearby No Req Close', {
         latitude: 44.6126,
         longitude: -63.6192,
-        answerRadiusKm: 5,
+        restrictToNearby: true,
       });
-      const nearbyFarQ = await mkQuestion('Nearby Far', {
+      const nearbyNoReqFarQ = await mkQuestion('Nearby No Req Far', {
         latitude: 44.62,
         longitude: -63.62,
-        answerRadiusKm: 5,
+        restrictToNearby: true,
       });
-      const incomingOlderQ = await mkQuestion('Incoming Older', {
+      const incomingNoReqOlderQ = await mkQuestion('Incoming No Req Older', {
         latitude: 45.0,
         longitude: -64.0,
         createdAt: new Date('2026-01-01T10:00:00.000Z'),
       });
-      const incomingNewerQ = await mkQuestion('Incoming Newer', {
+      const incomingNoReqNewerQ = await mkQuestion('Incoming No Req Newer', {
         latitude: 45.1,
         longitude: -64.1,
         createdAt: new Date('2026-01-02T10:00:00.000Z'),
+      });
+      const interactedNearbyQ = await mkQuestion('Interacted Nearby Read', {
+        latitude: 44.6126,
+        longitude: -63.6192,
+        restrictToNearby: true,
+        createdAt: new Date('2026-01-01T11:00:00.000Z'),
+      });
+      const interactedFarQ = await mkQuestion('Interacted Far Read', {
+        latitude: 45.2,
+        longitude: -64.2,
+        createdAt: new Date('2026-01-02T11:00:00.000Z'),
       });
       await prisma.question.create({
         data: {
@@ -641,10 +661,10 @@ describe('questions', () => {
 
       const unreadOlderReq = await mkAcceptedRequest(unreadOlderQ.id);
       const unreadNewerReq = await mkAcceptedRequest(unreadNewerQ.id);
-      await mkAcceptedRequest(nearbyCloseQ.id);
-      await mkAcceptedRequest(nearbyFarQ.id);
-      await mkAcceptedRequest(incomingOlderQ.id);
-      await mkAcceptedRequest(incomingNewerQ.id);
+      const interactedNearbyReq = await mkAcceptedRequest(interactedNearbyQ.id);
+      const interactedFarReq = await mkAcceptedRequest(interactedFarQ.id);
+
+      const readAt = new Date('2026-07-01T09:00:00.000Z');
 
       await prisma.message.create({
         data: {
@@ -666,9 +686,27 @@ describe('questions', () => {
           createdAt: new Date('2026-07-02T10:00:00.000Z'),
         },
       });
+
+      // Interacted incoming with all messages read (tier 4).
+      for (const [questionId, answerRequestId] of [
+        [interactedNearbyQ.id, interactedNearbyReq.id],
+        [interactedFarQ.id, interactedFarReq.id],
+      ] as const) {
+        await prisma.message.create({
+          data: {
+            questionId,
+            answerRequestId,
+            senderId: priorityAuthor.id,
+            text: 'Read chat message',
+            type: 'USER',
+            readAt,
+            createdAt: new Date('2026-06-01T10:00:00.000Z'),
+          },
+        });
+      }
     });
 
-    it('orders unread FIFO, then nearby distance, then incoming/outgoing chronology', async () => {
+    it('orders unread FIFO, nearby no-request, other no-request, interacted read, then outgoing', async () => {
       const res = await request(app)
         .get('/api/v1/questions/feed?lat=44.6126&lng=-63.6192')
         .set('Authorization', `Bearer ${priorityViewer.token}`);
@@ -678,10 +716,12 @@ describe('questions', () => {
       expect(titles).toEqual([
         'Unread Older',
         'Unread Newer',
-        'Nearby Close',
-        'Nearby Far',
-        'Incoming Newer',
-        'Incoming Older',
+        'Nearby No Req Close',
+        'Nearby No Req Far',
+        'Incoming No Req Newer',
+        'Incoming No Req Older',
+        'Interacted Far Read',
+        'Interacted Nearby Read',
         'Outgoing Newer',
         'Outgoing Older',
       ]);
@@ -690,12 +730,26 @@ describe('questions', () => {
 
   describe('GET /api/v1/questions/mine', () => {
     it('returns only the authenticated user questions', async () => {
-      const other = await createAuthUser({ email: 'other@qp.com', username: 'other_user' });
+      // Setup is fully local — earlier describe blocks clear the DB, so the
+      // global questioner/category references may be stale.
+      const cat = await createCategory('mine-section');
+      const me = await createAuthUser({ email: 'mine-me@qp.com', username: 'mine_me' });
+      await prisma.question.create({
+        data: {
+          title: 'My own q',
+          detail: 'detail',
+          categoryId: cat.id,
+          price: 1,
+          acceptanceCriteria: 'criteria',
+          userId: me.id,
+        },
+      });
+      const other = await createAuthUser({ email: 'mine-other@qp.com', username: 'mine_other' });
       await prisma.question.create({
         data: {
           title: 'Other user q',
           detail: 'detail',
-          categoryId,
+          categoryId: cat.id,
           price: 1,
           acceptanceCriteria: 'criteria',
           userId: other.id,
@@ -704,9 +758,10 @@ describe('questions', () => {
 
       const res = await request(app)
         .get('/api/v1/questions/mine')
-        .set('Authorization', `Bearer ${questioner.token}`);
+        .set('Authorization', `Bearer ${me.token}`);
 
       const titles = res.body.data.map((q: any) => q.title);
+      expect(titles).toContain('My own q');
       expect(titles).not.toContain('Other user q');
       expect(res.body.data[0]).toHaveProperty('requestCounts');
     });
@@ -759,7 +814,7 @@ describe('questions', () => {
           latitude: 44.6126,
           longitude: -63.6192,
           address: 'downtown',
-          answerRadiusKm: 3,
+          restrictToNearby: true,
         },
       });
       detailQuestionId = q1.id;
@@ -793,7 +848,7 @@ describe('questions', () => {
 
     it('returns canRequest=true for a responder within radius', async () => {
       const res = await request(app)
-        .get(`/api/v1/questions/${detailQuestionId}`)
+        .get(`/api/v1/questions/${detailQuestionId}?lat=44.6126&lng=-63.6192`)
         .set('Authorization', `Bearer ${responder.token}`);
       expect(res.body.data.canRequest).toBe(true);
       expect(res.body.data.canRequestReason).toBeNull();
@@ -801,10 +856,18 @@ describe('questions', () => {
 
     it('returns canRequest=false OUTSIDE_RADIUS for far-away responder', async () => {
       const res = await request(app)
-        .get(`/api/v1/questions/${detailQuestionId}`)
+        .get(`/api/v1/questions/${detailQuestionId}?lat=45.0&lng=-64.0`)
         .set('Authorization', `Bearer ${farAwayResponder.token}`);
       expect(res.body.data.canRequest).toBe(false);
       expect(res.body.data.canRequestReason).toBe('OUTSIDE_RADIUS');
+    });
+
+    it('returns canRequest=false NO_VIEWER_LOCATION without live GPS coords', async () => {
+      const res = await request(app)
+        .get(`/api/v1/questions/${detailQuestionId}`)
+        .set('Authorization', `Bearer ${responder.token}`);
+      expect(res.body.data.canRequest).toBe(false);
+      expect(res.body.data.canRequestReason).toBe('NO_VIEWER_LOCATION');
     });
 
     it('returns canRequest=false CLOSED when question is closed', async () => {

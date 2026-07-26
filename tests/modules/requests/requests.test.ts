@@ -17,7 +17,7 @@ const buildQuestion = async (userId: string, categoryId: string, overrides: any 
       latitude: overrides.latitude ?? null,
       longitude: overrides.longitude ?? null,
       address: overrides.address ?? null,
-      answerRadiusKm: overrides.answerRadiusKm ?? null,
+      restrictToNearby: overrides.restrictToNearby ?? false,
     },
   });
   return q;
@@ -69,7 +69,7 @@ describe('requests lifecycle', () => {
         latitude: 44.6126,
         longitude: -63.6192,
         address: 'downtown',
-        answerRadiusKm: 3,
+        restrictToNearby: true,
       });
       geoQuestionId = geo.id;
     });
@@ -136,15 +136,25 @@ describe('requests lifecycle', () => {
     it('rejects far-away responder with OUTSIDE_RADIUS', async () => {
       const res = await request(app)
         .post(`/api/v1/questions/${geoQuestionId}/requests`)
-        .set('Authorization', `Bearer ${farResponder.token}`);
+        .set('Authorization', `Bearer ${farResponder.token}`)
+        .send({ lat: 45.0, lng: -64.0 });
       expect(res.status).toBe(403);
       expect(res.body.reason).toBe('OUTSIDE_RADIUS');
+    });
+
+    it('rejects restrictToNearby request without live GPS coords', async () => {
+      const res = await request(app)
+        .post(`/api/v1/questions/${geoQuestionId}/requests`)
+        .set('Authorization', `Bearer ${farResponder.token}`);
+      expect(res.status).toBe(400);
+      expect(res.body.reason).toBe('NO_VIEWER_LOCATION');
     });
 
     it('allows within-radius responder', async () => {
       const res = await request(app)
         .post(`/api/v1/questions/${geoQuestionId}/requests`)
-        .set('Authorization', `Bearer ${responder.token}`);
+        .set('Authorization', `Bearer ${responder.token}`)
+        .send({ lat: 44.6126, lng: -63.6192 });
       expect(res.status).toBe(201);
     });
 

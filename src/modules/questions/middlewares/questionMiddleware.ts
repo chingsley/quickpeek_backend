@@ -11,6 +11,8 @@ const DEFAULT_CATEGORY_SLUG = 'other';
  * Validates the new question payload.
  * Location fields are optional; if `latitude`/`longitude` are present,
  * `address` is required so the question can be displayed on the feed map.
+ * `restrictToNearby` (when true) limits answering to viewers within the
+ * market-wide near-me radius of the question's coordinates.
  */
 export const validateQuestionCreation = async (
   req: Request,
@@ -25,7 +27,7 @@ export const validateQuestionCreation = async (
     latitude: LATITUDE.optional().allow(null),
     longitude: LONGITUDE.optional().allow(null),
     address: Joi.string().trim().max(300).optional().allow(null, ''),
-    answerRadiusKm: Joi.number().min(0.1).max(500).optional().allow(null),
+    restrictToNearby: Joi.boolean().default(false),
   });
 
   const { error, value } = schema.validate(req.body, { abortEarly: false, stripUnknown: true });

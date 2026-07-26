@@ -7,7 +7,6 @@ import { TokenPayload } from './../../../src/common/types/index';
 import prisma from "../../../src/core/database/prisma/client";
 import app from '../../../src/app';
 import clearAllSeed from '../../seed/clear.seed';
-import { userLocationUpdateQueue } from '../../../src/core/queues/userLocationUpdateQueue';
 import { deviceUpdateQueue } from '../../../src/core/queues/deviceUpdateQueue';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
@@ -233,69 +232,6 @@ describe('Users', () => {
         });
       expect(res.status).toBe(400);
       expect(res.body.error).toEqual('"notificationsEnabled" must be [false]');
-    });
-  });
-  describe('User Location Update Endpoint', () => {
-    const userLocationUpdateQueueAddMock = jest.spyOn(userLocationUpdateQueue, 'add').mockImplementation((data) => {
-      // console.log('adding to the queue in test...', data, typeof data);
-      // Return a mock Job object that contains the data
-      const mockJob: Partial<Job> = {
-        id: 1,
-        data
-      };
-
-      userLocationUpdateQueue.process(() => { });
-      return Promise.resolve(mockJob as Job);
-    });
-
-    const userLocationUpdateQueueProcessMock = jest.spyOn(userLocationUpdateQueue, 'process').mockImplementation(async (job) => {
-      // console.log('processing job in test, updating location...', job, typeof job);
-      return Promise.resolve();
-    });
-
-    beforeAll(async () => {
-      await clearAllSeed(prisma);
-    });
-
-    afterAll(async () => {
-      await prisma.$disconnect();
-      userLocationUpdateQueueAddMock.mockRestore();  // Restore original add method after tests
-      userLocationUpdateQueueProcessMock.mockRestore();  // Restore original process method after tests
-    });
-
-    it('should send the location update to the queue and process it', async () => {
-      const user = await prisma.user.create({
-        data: {
-          email: 'testuser@example.com',
-          password: 'hashedpassword', // Assume this is already hashed
-          name: 'Test User',
-          username: 'testuser',
-          deviceType: 'ios',
-          deviceToken: 'someDeviceToken',
-          notificationsEnabled: true,
-          locationSharingEnabled: true,
-          isVerified: true,
-        },
-      });
-
-      const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET!); // Mock JWT token generation
-
-      const response = await request(app)
-        .post('/api/v1/users/location')
-        .set('Authorization', `Bearer ${token}`)
-        .send({
-          longitude: 12.34,
-          latitude: 56.78,
-        })
-        .expect(201);
-
-      expect(response.body.message).toBe('User location sent to the queue for update');
-      expect(userLocationUpdateQueue.add).toHaveBeenCalledWith({
-        userId: user.id,
-        longitude: 12.34,
-        latitude: 56.78
-      });
-      expect(userLocationUpdateQueue.process).toHaveBeenCalled();
     });
   });
 });

@@ -5,7 +5,6 @@ import jwt from 'jsonwebtoken';
 import config from '../../../core/config/default';
 import prisma from '../../../core/database/prisma/client';
 import { deviceUpdateQueue } from '../../../core/queues/deviceUpdateQueue';
-import { userLocationUpdateQueue } from '../../../core/queues/userLocationUpdateQueue';
 import {
   errCodeConstants,
   PRISMA_UNIQUE_CONSTRAINT_VIOLATION_CODE
@@ -97,24 +96,6 @@ export const loginUser = async (req: Request, res: Response) => {
     res.status(200).json({ message: 'Login successful', data: { user: sanitizedUser, token } });
   } catch (error) {
     res.status(500).json({ error: 'Error logging in' });
-  }
-};
-
-export const updateUserLocation = async (req: Request, res: Response) => {
-  try {
-    const { longitude, latitude } = req.body;
-    await userLocationUpdateQueue.add({
-      userId: req.user!.userId,
-      longitude,
-      latitude,
-    });
-
-    res.status(201).json({
-      message: 'User location sent to the queue for update',
-      data: {}
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to send user location to the queue' });
   }
 };
 

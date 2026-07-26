@@ -1,4 +1,4 @@
-import { AnswerRequestStatus, QuestionStatus, RatingRole } from '@prisma/client';
+import { AnswerRequestStatus, Prisma, QuestionStatus, RatingRole } from '@prisma/client';
 import { Request, Response } from 'express';
 import Joi from 'joi';
 import prisma from '../../../core/database/prisma/client';
@@ -10,6 +10,10 @@ import {
 import { calculateHaversineDistance } from '../../../common/utils/geo.utils';
 import { getUserRatingByRole } from '../../../common/utils/ratings';
 import { getActiveBlock } from '../../../common/utils/requestViewer.utils';
+import {
+  getMarketConfigValue,
+  MARKET_CONFIG_KEYS,
+} from '../../config/configService';
 
 type AuthedRequest = Request & { user?: { userId: string; }; };
 
@@ -45,7 +49,98 @@ export const getRejectionReasons = async (_req: AuthedRequest, res: Response) =>
   });
 };
 
-const requestSummary = (r: any) => ({
+type CreateRequestQuestion = {
+  userId: string;
+  status: QuestionStatus;
+  latitude: number | null;
+  longitude: number | null;
+  restrictToNearby: boolean;
+};
+
+const createRequestQuestionSelect = {
+  userId: true,
+  status: true,
+  latitude: true,
+  longitude: true,
+  restrictToNearby: true,
+} as Prisma.QuestionSelect;
+
+const requestQuestionSummarySelect = {
+  id: true,
+  title: true,
+  detail: true,
+  price: true,
+  status: true,
+  latitude: true,
+  longitude: true,
+  address: true,
+  restrictToNearby: true,
+  category: { select: { id: true, name: true, slug: true } },
+} as const;
+
+const requestQuestionDetailSelect = {
+  ...requestQuestionSummarySelect,
+  acceptanceCriteria: true,
+  userId: true,
+} as const;
+
+const counterpartyUserSelect = {
+  id: true,
+  name: true,
+  username: true,
+  profileImageUrl: true,
+} as const;
+
+const requestWithQuestionInclude = {
+  question: { select: requestQuestionDetailSelect },
+  responder: { select: { id: true, username: true } },
+} satisfies Prisma.AnswerRequestInclude;
+
+type RequestWithQuestion = Prisma.AnswerRequestGetPayload<{
+  include: typeof requestWithQuestionInclude;
+}>;
+
+const incomingRequestInclude = {
+  question: { select: requestQuestionSummarySelect },
+  responder: { select: counterpartyUserSelect },
+} satisfies Prisma.AnswerRequestInclude;
+
+type IncomingRequestRow = Prisma.AnswerRequestGetPayload<{
+  include: typeof incomingRequestInclude;
+}>;
+
+const outgoingRequestInclude = {
+  question: { select: requestQuestionSummarySelect },
+  questioner: { select: counterpartyUserSelect },
+} satisfies Prisma.AnswerRequestInclude;
+
+type OutgoingRequestRow = Prisma.AnswerRequestGetPayload<{
+  include: typeof outgoingRequestInclude;
+}>;
+
+const requestSummary = (r: {
+  id: string;
+  questionId: string;
+  responderId: string;
+  questionerId: string;
+  status: AnswerRequestStatus;
+  rejectionReason: string | null;
+  createdAt: Date;
+  respondedAt: Date | null;
+  question?: {
+    id: string;
+    title: string;
+    detail: string;
+    price: number;
+    status: QuestionStatus;
+    latitude: number | null;
+    longitude: number | null;
+    address: string | null;
+    restrictToNearby: boolean;
+    category: { id: string; name: string; slug: string };
+  } | null;
+  counterparty?: unknown;
+}) => ({
   id: r.id,
   questionId: r.questionId,
   responderId: r.responderId,
@@ -63,34 +158,16 @@ const requestSummary = (r: any) => ({
     latitude: r.question.latitude,
     longitude: r.question.longitude,
     address: r.question.address,
-    answerRadiusKm: r.question.answerRadiusKm,
+    restrictToNearby: r.question.restrictToNearby,
     category: r.question.category,
   },
   counterparty: r.counterparty,
 });
 
-const fetchRequestWithQuestion = (id: string) =>
+const fetchRequestWithQuestion = (id: string): Promise<RequestWithQuestion | null> =>
   prisma.answerRequest.findUnique({
     where: { id },
-    include: {
-      question: {
-        select: {
-          id: true,
-          title: true,
-          detail: true,
-          price: true,
-          status: true,
-          latitude: true,
-          longitude: true,
-          address: true,
-          answerRadiusKm: true,
-          acceptanceCriteria: true,
-          userId: true,
-          category: { select: { id: true, name: true, slug: true } },
-        },
-      },
-      responder: { select: { id: true, username: true } },
-    },
+    include: requestWithQuestionInclude,
   });
 
 /**
@@ -103,7 +180,10 @@ export const createRequest = async (req: AuthedRequest, res: Response) => {
     const { id: questionId } = req.params;
     const responderId = req.user!.userId;
 
-    const question = await prisma.question.findUnique({ where: { id: questionId } });
+    const question = (await prisma.question.findUnique({
+      where: { id: questionId },
+      select: createRequestQuestionSelect,
+    })) as CreateRequestQuestion | null;
     if (!question) {
       return res.status(404).json({ error: 'Question not found' });
     }
@@ -136,29 +216,30 @@ export const createRequest = async (req: AuthedRequest, res: Response) => {
     }
 
     if (
-      question.answerRadiusKm != null &&
+      question.restrictToNearby &&
       question.latitude != null &&
       question.longitude != null
     ) {
-      const responder = await prisma.user.findUnique({
-        where: { id: responderId },
-        select: { location: { select: { latitude: true, longitude: true } } },
-      });
-      if (!responder?.location) {
+      const bodyLat = req.body?.lat != null ? parseFloat(String(req.body.lat)) : NaN;
+      const bodyLng = req.body?.lng != null ? parseFloat(String(req.body.lng)) : NaN;
+      const hasLiveCoords = !Number.isNaN(bodyLat) && !Number.isNaN(bodyLng);
+
+      if (!hasLiveCoords) {
         return res.status(400).json({
           error: 'Location required to request this question',
           reason: 'NO_VIEWER_LOCATION',
         });
       }
+      const nearMeRadiusKm = await getMarketConfigValue(MARKET_CONFIG_KEYS.nearMeRadiusKm);
       const distance = calculateHaversineDistance(
-        responder.location.latitude,
-        responder.location.longitude,
+        bodyLat,
+        bodyLng,
         question.latitude,
         question.longitude,
       );
-      if (distance > question.answerRadiusKm) {
+      if (distance > nearMeRadiusKm) {
         return res.status(403).json({
-          error: `You are outside the answer radius (${distance.toFixed(2)}km > ${question.answerRadiusKm}km)`,
+          error: `You are outside the near-me radius (${distance.toFixed(2)}km > ${nearMeRadiusKm}km)`,
           reason: 'OUTSIDE_RADIUS',
           distanceKm: Number(distance.toFixed(2)),
         });
@@ -382,9 +463,11 @@ export const getIncomingRequests = async (req: AuthedRequest, res: Response) => 
         ? (req.query.status as AnswerRequestStatus)
         : undefined;
 
-    const where: any = { questionerId: userId };
-    if (questionId) where.questionId = questionId;
-    if (status) where.status = status;
+    const where: Prisma.AnswerRequestWhereInput = {
+      questionerId: userId,
+      ...(questionId ? { questionId } : {}),
+      ...(status ? { status } : {}),
+    };
 
     const [total, rows] = await Promise.all([
       prisma.answerRequest.count({ where }),
@@ -393,21 +476,7 @@ export const getIncomingRequests = async (req: AuthedRequest, res: Response) => 
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
-        include: {
-          question: {
-            select: {
-              id: true,
-              title: true,
-              detail: true,
-              price: true,
-              status: true,
-              category: { select: { id: true, name: true, slug: true } },
-            },
-          },
-          responder: {
-            select: { id: true, name: true, username: true, profileImageUrl: true },
-          },
-        },
+        include: incomingRequestInclude,
       }),
     ]);
 
@@ -419,7 +488,7 @@ export const getIncomingRequests = async (req: AuthedRequest, res: Response) => 
       responderIds.map((id, index) => [id, responderRatings[index]]),
     );
 
-    const items = rows.map((r) => {
+    const items = rows.map((r: IncomingRequestRow) => {
       const rating = ratingByResponderId.get(r.responder.id)!;
       return requestSummary({
         ...r,
@@ -459,8 +528,10 @@ export const getOutgoingRequests = async (req: AuthedRequest, res: Response) => 
         ? (req.query.status as AnswerRequestStatus)
         : undefined;
 
-    const where: any = { responderId: userId };
-    if (status) where.status = status;
+    const where: Prisma.AnswerRequestWhereInput = {
+      responderId: userId,
+      ...(status ? { status } : {}),
+    };
 
     const [total, rows] = await Promise.all([
       prisma.answerRequest.count({ where }),
@@ -469,29 +540,11 @@ export const getOutgoingRequests = async (req: AuthedRequest, res: Response) => 
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
-        include: {
-          question: {
-            select: {
-              id: true,
-              title: true,
-              detail: true,
-              price: true,
-              status: true,
-              latitude: true,
-              longitude: true,
-              address: true,
-              answerRadiusKm: true,
-              category: { select: { id: true, name: true, slug: true } },
-            },
-          },
-          questioner: {
-            select: { id: true, name: true, username: true, profileImageUrl: true },
-          },
-        },
+        include: outgoingRequestInclude,
       }),
     ]);
 
-    const items = rows.map((r) =>
+    const items = rows.map((r: OutgoingRequestRow) =>
       requestSummary({
         ...r,
         counterparty: {
@@ -660,7 +713,7 @@ export const getRequestDetail = async (req: AuthedRequest, res: Response) => {
           latitude: request.question.latitude,
           longitude: request.question.longitude,
           address: request.question.address,
-          answerRadiusKm: request.question.answerRadiusKm,
+          restrictToNearby: request.question.restrictToNearby,
           category: request.question.category,
         },
         counterparty,

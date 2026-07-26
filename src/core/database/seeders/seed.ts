@@ -267,7 +267,7 @@ async function seed() {
         longitude,
         latitude,
         address,
-        answerRadiusKm: qdef.withLocation ? 3 : null,
+        restrictToNearby: !!qdef.withLocation,
         userId: test03.id,
         status: qdef.status,
         answeredAt:
@@ -442,7 +442,7 @@ async function seed() {
         longitude: centralLongitude + 0.001,
         latitude: centralLatitude + 0.001,
         address: pick(ADDRESSES),
-        answerRadiusKm: 5,
+        restrictToNearby: true,
         userId: test03.id,
         status: QuestionStatus.OPEN,
       },
@@ -498,6 +498,13 @@ async function seed() {
     request?: RequestKind;
     rejectionReason?: string;
     responderReply?: string;
+    /**
+     * Override the default restrictToNearby derivation. By default, any
+     * question with a location is restrictToNearby=true (mirrors the /ask
+     * screen where the toggle defaults ON when a location is pinned). Set
+     * explicitly to `false` for "location shown for context, anyone can answer".
+     */
+    restrictToNearby?: boolean;
   };
 
   const nearYouDefs: FeedQuestionDef[] = [
@@ -542,6 +549,16 @@ async function seed() {
       price: 3,
       detail: 'Current wait time at the Shoppers on Quinpool for prescription pickup.',
       acceptanceCriteria: 'Wait time in minutes or photo of the pickup counter queue.',
+    },
+    {
+      // Pinned location but restrictToNearby=false: anyone can answer. This
+      // exercises the "toggle off" path on the /ask screen.
+      title: 'Quinpool pharmacy recommendation?',
+      categorySlug: 'services',
+      price: 4,
+      detail: 'Looking for a recommended pharmacy near Quinpool for an elderly relative — names and why.',
+      acceptanceCriteria: 'Pharmacy name and a short note on service or accessibility.',
+      restrictToNearby: false,
     },
   ];
 
@@ -834,7 +851,9 @@ async function seed() {
         longitude,
         latitude,
         address,
-        answerRadiusKm: useLocation ? 5 : null,
+        // Default to the /ask screen's default-ON behaviour whenever a
+        // location is pinned; individual defs can opt out via override.
+        restrictToNearby: useLocation && def.restrictToNearby !== false,
         userId: questioner.id,
         status: QuestionStatus.OPEN,
       },
@@ -982,6 +1001,172 @@ async function seed() {
   }
   console.log(`  incoming questions from other users: ${feedQuestionIndex}`);
 
+  // Pinned-location question placed clearly outside the default 5km near-me
+  // radius. When the viewer (test03) turns on Near me, this question should
+  // NOT appear in the list; opening its detail page should surface the
+  // OUTSIDE_RADIUS disabled-button state.
+  const farQuestioner = nextQuestioner();
+  const farCategory = categories['location'];
+  await prisma.question.create({
+    data: {
+      title: 'Beach conditions at Lawrencetown?',
+      detail: 'Is the sandbar at Lawrencetown exposed and how is the surf right now?',
+      categoryId: farCategory.id,
+      price: 5,
+      acceptanceCriteria: 'Photo of the beach or a quick note on surf height.',
+      // Lawrencetown Beach is ~20km east of central Halifax — well outside the
+      // market near-me radius, so this question is intentionally unreachable
+      // via the Near me filter.
+      longitude: -63.3197,
+      latitude: 44.5057,
+      address: 'Lawrencetown Beach, Halifax, NS',
+      restrictToNearby: true,
+      userId: farQuestioner.id,
+      status: QuestionStatus.OPEN,
+    },
+  });
+  console.log('  far-away restrictToNearby question: Beach conditions at Lawrencetown?');
+
+  // -------------------------------------------------------------------------
+  // Feed priority ordering examples for test03 (default Home sort).
+  // Titles are prefixed "Sort T#" so you can spot each tier in the All feed.
+  // Tier-1 examples use very old unread timestamps so they stay at the top.
+  // -------------------------------------------------------------------------
+  console.log('\nSeeding feed priority order examples for test03…');
+  const sortAuthor = users[0];
+  const sortCategory = categories['location'];
+  const sortReadAt = new Date('2026-06-01T12:00:00.000Z');
+
+  const mkSortIncoming = (title: string, extra: Record<string, unknown> = {}) =>
+    prisma.question.create({
+      data: {
+        title,
+        detail: 'Priority sort seed question.',
+        categoryId: sortCategory.id,
+        price: 3,
+        acceptanceCriteria: 'Seed only.',
+        userId: sortAuthor.id,
+        status: QuestionStatus.OPEN,
+        ...extra,
+      },
+    });
+
+  const sortUnreadFirstQ = await mkSortIncoming('Sort T1: Unread First');
+  const sortUnreadSecondQ = await mkSortIncoming('Sort T1: Unread Second');
+  const sortNearbyCloseQ = await mkSortIncoming('Sort T2: Nearby Close', {
+    latitude: centralLatitude,
+    longitude: centralLongitude,
+    address: pick(ADDRESSES),
+    restrictToNearby: true,
+  });
+  const sortNearbyFarQ = await mkSortIncoming('Sort T2: Nearby Far', {
+    latitude: 44.62,
+    longitude: -63.62,
+    address: pick(ADDRESSES),
+    restrictToNearby: true,
+  });
+  const sortFarOlderQ = await mkSortIncoming('Sort T3: Far Older', {
+    latitude: 45.0,
+    longitude: -64.0,
+    createdAt: new Date('2026-01-01T10:00:00.000Z'),
+  });
+  const sortFarNewerQ = await mkSortIncoming('Sort T3: Far Newer', {
+    latitude: 45.1,
+    longitude: -64.1,
+    createdAt: new Date('2026-01-02T10:00:00.000Z'),
+  });
+  const sortInteractedOlderQ = await mkSortIncoming('Sort T4: Interacted Older', {
+    latitude: 44.613,
+    longitude: -63.618,
+    restrictToNearby: true,
+    createdAt: new Date('2026-01-01T11:00:00.000Z'),
+  });
+  const sortInteractedNewerQ = await mkSortIncoming('Sort T4: Interacted Newer', {
+    latitude: 45.2,
+    longitude: -64.2,
+    createdAt: new Date('2026-01-02T11:00:00.000Z'),
+  });
+  const sortOutgoingOlderQ = await prisma.question.create({
+    data: {
+      title: 'Sort T5: Outgoing Older',
+      detail: 'Priority sort seed question.',
+      categoryId: sortCategory.id,
+      price: 3,
+      acceptanceCriteria: 'Seed only.',
+      userId: test03.id,
+      status: QuestionStatus.OPEN,
+      createdAt: new Date('2026-01-01T08:00:00.000Z'),
+    },
+  });
+  const sortOutgoingNewerQ = await prisma.question.create({
+    data: {
+      title: 'Sort T5: Outgoing Newer',
+      detail: 'Priority sort seed question.',
+      categoryId: sortCategory.id,
+      price: 3,
+      acceptanceCriteria: 'Seed only.',
+      userId: test03.id,
+      status: QuestionStatus.OPEN,
+      createdAt: new Date('2026-01-03T08:00:00.000Z'),
+    },
+  });
+
+  const mkSortAcceptedRequest = (questionId: string) =>
+    prisma.answerRequest.create({
+      data: {
+        questionId,
+        responderId: test03.id,
+        questionerId: sortAuthor.id,
+        status: AnswerRequestStatus.ACCEPTED,
+        respondedAt: new Date(),
+      },
+    });
+
+  const sortUnreadFirstReq = await mkSortAcceptedRequest(sortUnreadFirstQ.id);
+  const sortUnreadSecondReq = await mkSortAcceptedRequest(sortUnreadSecondQ.id);
+  const sortInteractedOlderReq = await mkSortAcceptedRequest(sortInteractedOlderQ.id);
+  const sortInteractedNewerReq = await mkSortAcceptedRequest(sortInteractedNewerQ.id);
+
+  await prisma.message.create({
+    data: {
+      questionId: sortUnreadFirstQ.id,
+      answerRequestId: sortUnreadFirstReq.id,
+      senderId: sortAuthor.id,
+      text: 'Oldest unread for sort seed',
+      type: MessageType.USER,
+      createdAt: new Date('2020-01-01T10:00:00.000Z'),
+    },
+  });
+  await prisma.message.create({
+    data: {
+      questionId: sortUnreadSecondQ.id,
+      answerRequestId: sortUnreadSecondReq.id,
+      senderId: sortAuthor.id,
+      text: 'Second oldest unread for sort seed',
+      type: MessageType.USER,
+      createdAt: new Date('2020-01-02T10:00:00.000Z'),
+    },
+  });
+
+  for (const [questionId, answerRequestId] of [
+    [sortInteractedOlderQ.id, sortInteractedOlderReq.id],
+    [sortInteractedNewerQ.id, sortInteractedNewerReq.id],
+  ] as const) {
+    await prisma.message.create({
+      data: {
+        questionId,
+        answerRequestId,
+        senderId: sortAuthor.id,
+        text: 'Read message for sort seed',
+        type: MessageType.USER,
+        readAt: sortReadAt,
+        createdAt: new Date('2026-06-01T10:00:00.000Z'),
+      },
+    });
+  }
+
+  console.log('  Sort T1 → T5 priority examples seeded (search "Sort T" in Home feed)');
+
   // Seeded review for the ANSWERED pancake question (single accepted request, both sides reviewed)
   const pancakeQuestion = outboxQuestions.find((q) => q.title === 'Best pancake recipe?');
   if (pancakeQuestion) {
@@ -1081,9 +1266,18 @@ async function seed() {
   console.log('\nRefreshing location timestamps for nearby queries…');
   await prisma.$executeRaw`UPDATE locations SET "updatedAt" = NOW()`;
 
+  console.log('\nSeeding market config defaults…');
+  await prisma.marketConfig.upsert({
+    where: { key: 'nearMeRadiusKm' },
+    update: {},
+    create: { key: 'nearMeRadiusKm', value: 5 },
+  });
+
   console.log('\n✅ Seed complete!');
   console.log(`   Login: ${test03.email} / password: password123`);
   console.log('   Home feed (test03): All questions, Incoming, Outgoing');
+  console.log('   Feed sort test: search Home for "Sort T" — T1 unread FIFO, T2 nearby no-request,');
+  console.log('     T3 far no-request, T4 interacted read, T5 outgoing (newest first within tier)');
   console.log('   Briefing test: open approved chats, or accept a request on your own question');
 }
 

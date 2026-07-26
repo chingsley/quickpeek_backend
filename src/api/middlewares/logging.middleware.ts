@@ -13,12 +13,12 @@ export const loggingMiddleware = (req: Request, res: Response, next: NextFunctio
 
   const { method, url, headers, body } = req;
 
-  logger.info('Request', { method, url, headers, body });
+  logger.info('Request', { method, url, });
 
   const originalSend = res.send;
   res.send = function (body) {
     const duration = Date.now() - start;
-    logger.info('Response', { method, url, duration, body });
+    logger.info('Response', { method, url, duration, });
     return originalSend.apply(res, arguments as any);
   };
 

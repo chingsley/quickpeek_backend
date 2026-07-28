@@ -8,6 +8,7 @@ import {
   getQuestionFeed,
   searchQuestions,
   getUserPostedQuestions,
+  getUserClosedQuestions,
   getQuestionDetail,
   closeQuestion,
   getCloseReasons,
@@ -27,6 +28,7 @@ router.get('/search', optionalAuthenticateToken, searchQuestions);
 
 // Authenticated
 router.post('/', authenticateToken, questionCreationLimiter, validateQuestionCreation, createQuestion);
+router.get('/mine/closed', authenticateToken, getUserClosedQuestions);
 router.get('/mine', authenticateToken, getUserPostedQuestions);
 router.get('/close-reasons', authenticateToken, getCloseReasons);
 

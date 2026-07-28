@@ -171,8 +171,13 @@ export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
     // filter returns an empty list (per the UX spec — the FE shows an
     // "enable your location" prompt instead).
     if (filterByNearMe && !viewerHasCoords) {
+      const closedCount = viewerId
+        ? await prisma.question.count({
+          where: { userId: viewerId, status: QuestionStatus.CLOSED },
+        })
+        : 0;
       const empty = viewerId
-        ? { items: [] as any[], counts: { all: 0, incoming: 0, outgoing: 0 } }
+        ? { items: [] as any[], counts: { all: 0, incoming: 0, outgoing: 0, closed: closedCount } }
         : { items: [] as any[], pagination: { page, limit, total: 0, hasMore: false } };
       return res.status(200).json({ message: 'Successful', data: empty });
     }
@@ -278,6 +283,9 @@ export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
 
       const incoming = sortedItems.filter((item: any) => item.userId !== viewerId).length;
       const outgoing = sortedItems.filter((item: any) => item.userId === viewerId).length;
+      const closed = await prisma.question.count({
+        where: { userId: viewerId, status: QuestionStatus.CLOSED },
+      });
 
       return res.status(200).json({
         message: 'Successful',
@@ -287,6 +295,7 @@ export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
             all: sortedItems.length,
             incoming,
             outgoing,
+            closed,
           },
         },
       });
@@ -386,7 +395,8 @@ export const searchQuestions = async (req: AuthedRequest, res: Response) => {
         FROM "questions" q
         JOIN "users" u      ON u.id = q."userId"
         JOIN "categories" c ON c.id = q."categoryId"
-        WHERE
+        WHERE q.status = 'OPEN'
+          AND (
              similarity(q.title,                ${rawQuery}) >= 0.1
           OR similarity(q.detail,               ${rawQuery}) >= 0.1
           OR similarity(q."acceptanceCriteria",  ${rawQuery}) >= 0.1
@@ -474,6 +484,36 @@ export const searchQuestions = async (req: AuthedRequest, res: Response) => {
   } catch (error) {
     console.error('searchQuestions error:', error);
     return res.status(500).json({ error: 'Failed to search questions' });
+  }
+};
+
+/**
+ * GET /questions/mine/closed — questioner's own CLOSED questions (not on the public feed).
+ */
+export const getUserClosedQuestions = async (req: AuthedRequest, res: Response) => {
+  try {
+    const userId = req.user!.userId;
+
+    const questions = await prisma.question.findMany({
+      where: { userId, status: QuestionStatus.CLOSED },
+      orderBy: [{ closedAt: 'desc' }, { createdAt: 'desc' }],
+      include: {
+        category: { select: { id: true, name: true, slug: true } },
+      },
+    });
+
+    const items = questions.map((q) => ({
+      ...publicQuestionShape(q),
+      userId: q.userId,
+    }));
+
+    return res.status(200).json({
+      message: 'Successful',
+      data: { items, count: items.length },
+    });
+  } catch (error) {
+    console.error('getUserClosedQuestions error:', error);
+    return res.status(500).json({ error: 'Failed to fetch closed questions' });
   }
 };
 
@@ -630,6 +670,10 @@ export const getQuestionDetail = async (req: AuthedRequest, res: Response) => {
     });
 
     if (!question) {
+      return res.status(404).json({ error: 'Question not found' });
+    }
+
+    if (question.status === QuestionStatus.CLOSED && viewerId !== question.userId) {
       return res.status(404).json({ error: 'Question not found' });
     }
 

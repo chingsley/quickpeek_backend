@@ -297,7 +297,7 @@ describe('questions', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data.items).toEqual([]);
-      expect(res.body.data.counts).toEqual({ all: 0, incoming: 0, outgoing: 0 });
+      expect(res.body.data.counts).toEqual({ all: 0, incoming: 0, outgoing: 0, closed: 0 });
     });
   });
 
@@ -432,6 +432,7 @@ describe('questions', () => {
         all: expect.any(Number),
         incoming: expect.any(Number),
         outgoing: expect.any(Number),
+        closed: expect.any(Number),
       });
       expect(feedTitles(res)).toContain('Pending Section Q');
       expect(feedTitles(res)).toContain('Approved Section Q');
@@ -772,6 +773,67 @@ describe('questions', () => {
     });
   });
 
+  describe('GET /api/v1/questions/mine/closed', () => {
+    it('returns only the authenticated user closed questions', async () => {
+      const cat = await createCategory('closed-section');
+      const me = await createAuthUser({ email: 'closed-me@qp.com', username: 'closed_me' });
+      const other = await createAuthUser({ email: 'closed-other@qp.com', username: 'closed_other' });
+
+      await prisma.question.create({
+        data: {
+          title: 'My closed q',
+          detail: 'detail',
+          categoryId: cat.id,
+          price: 1,
+          acceptanceCriteria: 'criteria',
+          userId: me.id,
+          status: QuestionStatus.CLOSED,
+          closedAt: new Date(),
+          closeReason: 'Question answered',
+        },
+      });
+      await prisma.question.create({
+        data: {
+          title: 'My open q',
+          detail: 'detail',
+          categoryId: cat.id,
+          price: 1,
+          acceptanceCriteria: 'criteria',
+          userId: me.id,
+          status: QuestionStatus.OPEN,
+        },
+      });
+      await prisma.question.create({
+        data: {
+          title: 'Other closed q',
+          detail: 'detail',
+          categoryId: cat.id,
+          price: 1,
+          acceptanceCriteria: 'criteria',
+          userId: other.id,
+          status: QuestionStatus.CLOSED,
+          closedAt: new Date(),
+          closeReason: 'Question answered',
+        },
+      });
+
+      const res = await request(app)
+        .get('/api/v1/questions/mine/closed')
+        .set('Authorization', `Bearer ${me.token}`);
+
+      expect(res.status).toBe(200);
+      const titles = res.body.data.items.map((q: any) => q.title);
+      expect(titles).toEqual(['My closed q']);
+      expect(res.body.data.count).toBe(1);
+      expect(res.body.data.items[0].status).toBe('CLOSED');
+    });
+
+    it('requires authentication', async () => {
+      const res = await request(app).get('/api/v1/questions/mine/closed');
+      expect(res.status).toBe(401);
+    });
+  });
+
   describe('GET /api/v1/questions/:id (detail + canRequest)', () => {
     let detailQuestionId: string;
     let ownQuestionId: string;
@@ -870,7 +932,7 @@ describe('questions', () => {
       expect(res.body.data.canRequestReason).toBe('NO_VIEWER_LOCATION');
     });
 
-    it('returns canRequest=false CLOSED when question is closed', async () => {
+    it('returns canRequest=false CLOSED when question is closed for the owner', async () => {
       await prisma.question.update({
         where: { id: detailQuestionId },
         data: {
@@ -880,10 +942,18 @@ describe('questions', () => {
           closeReason: 'Question answered',
         },
       });
-      const res = await request(app)
+      const ownerRes = await request(app)
+        .get(`/api/v1/questions/${detailQuestionId}`)
+        .set('Authorization', `Bearer ${questioner.token}`);
+      expect(ownerRes.status).toBe(200);
+      expect(ownerRes.body.data.status).toBe('CLOSED');
+      expect(ownerRes.body.data.canRequest).toBe(false);
+      expect(ownerRes.body.data.canRequestReason).toBe('OWN_QUESTION');
+
+      const responderRes = await request(app)
         .get(`/api/v1/questions/${detailQuestionId}`)
         .set('Authorization', `Bearer ${responder.token}`);
-      expect(res.body.data.canRequestReason).toBe('CLOSED');
+      expect(responderRes.status).toBe(404);
 
       // Reset for later tests
       await prisma.question.update({

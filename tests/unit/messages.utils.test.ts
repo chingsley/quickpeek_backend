@@ -1,10 +1,10 @@
 import {
-  buildAcceptanceBriefingTexts,
+  buildQuestionBriefingTexts,
 } from '../../src/common/utils/messages.utils';
 
-describe('buildAcceptanceBriefingTexts', () => {
+describe('buildQuestionBriefingTexts', () => {
   it('returns location, detail, and acceptance criteria in order', () => {
-    const texts = buildAcceptanceBriefingTexts({
+    const texts = buildQuestionBriefingTexts({
       address: '296 Herring Cove Rd, Halifax, NS',
       latitude: 44.61,
       longitude: -63.62,
@@ -20,7 +20,7 @@ describe('buildAcceptanceBriefingTexts', () => {
   });
 
   it('uses coordinates when address is missing', () => {
-    const texts = buildAcceptanceBriefingTexts({
+    const texts = buildQuestionBriefingTexts({
       address: null,
       latitude: 44.6126,
       longitude: -63.6192,
@@ -32,7 +32,7 @@ describe('buildAcceptanceBriefingTexts', () => {
   });
 
   it('omits location when no address or coordinates', () => {
-    const texts = buildAcceptanceBriefingTexts({
+    const texts = buildQuestionBriefingTexts({
       address: null,
       latitude: null,
       longitude: null,

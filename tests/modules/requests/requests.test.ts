@@ -74,7 +74,7 @@ describe('requests lifecycle', () => {
       geoQuestionId = geo.id;
     });
 
-    it('creates a PENDING request and seeds 2 role-specific system messages', async () => {
+    it('creates a PENDING request, posts question-info USER messages, then 2 system messages', async () => {
       const res = await request(app)
         .post(`/api/v1/questions/${openQuestionId}/requests`)
         .set('Authorization', `Bearer ${responder.token}`);
@@ -83,12 +83,26 @@ describe('requests lifecycle', () => {
       expect(res.body.data.status).toBe('PENDING');
 
       const messages = await prisma.message.findMany({
-        where: { answerRequestId: res.body.data.id, type: 'SYSTEM' },
+        where: { answerRequestId: res.body.data.id },
+        orderBy: { createdAt: 'asc' },
       });
+
+      const systemMessages = messages.filter((m) => m.type === 'SYSTEM');
       // 2 system messages: one for responder, one for questioner
-      expect(messages).toHaveLength(2);
-      const visibleTo = messages.map((m) => m.visibleToUserId).sort();
+      expect(systemMessages).toHaveLength(2);
+      const visibleTo = systemMessages.map((m) => m.visibleToUserId).sort();
       expect(visibleTo).toEqual([questioner.id, responder.id].sort());
+
+      // Question info is posted first, as USER messages from the questioner
+      // (default buildQuestion detail + acceptanceCriteria, no location).
+      const userMessages = messages.filter((m) => m.type === 'USER');
+      expect(userMessages.length).toBeGreaterThanOrEqual(2);
+      expect(userMessages.every((m) => m.senderId === questioner.id)).toBe(true);
+      expect(userMessages.every((m) => m.visibleToUserId === null)).toBe(true);
+
+      // Question info precedes the system messages in chronological order.
+      const firstSystemIndex = messages.findIndex((m) => m.type === 'SYSTEM');
+      expect(firstSystemIndex).toBe(userMessages.length);
     });
 
     it('rejects own question', async () => {
@@ -244,7 +258,7 @@ describe('requests lifecycle', () => {
     });
   });
 
-  describe('POST /api/v1/requests/:id/accept — briefing messages', () => {
+  describe('POST /api/v1/questions/:id/requests — question info as first chat messages', () => {
     let briefingRequestId: string;
     let questionerUserId: string;
     let responderUserId: string;
@@ -263,82 +277,43 @@ describe('requests lifecycle', () => {
         longitude: -63.6192,
         acceptanceCriteria: 'Photo of the queue or head-count.',
       });
-
-      const answerRequest = await prisma.answerRequest.create({
-        data: {
-          questionId: q.id,
-          responderId: responder.id,
-          questionerId: questioner.id,
-          status: AnswerRequestStatus.PENDING,
-        },
-      });
-      briefingRequestId = answerRequest.id;
       questionerUserId = questioner.id;
       responderUserId = responder.id;
 
-      await prisma.message.create({
-        data: {
-          questionId: q.id,
-          answerRequestId: answerRequest.id,
-          senderId: responder.id,
-          text: 'Your request to answer the question has been sent to the question creator.',
-          type: 'SYSTEM',
-          visibleToUserId: responder.id,
-        },
-      });
-      await prisma.message.create({
-        data: {
-          questionId: q.id,
-          answerRequestId: answerRequest.id,
-          senderId: responder.id,
-          text: 'You have a request by @responder to respond to your question.',
-          type: 'SYSTEM',
-          visibleToUserId: questioner.id,
-        },
-      });
+      const res = await request(app)
+        .post(`/api/v1/questions/${q.id}/requests`)
+        .set('Authorization', `Bearer ${responder.token}`);
+      expect(res.status).toBe(201);
+      briefingRequestId = res.body.data.id;
     });
 
-    it('posts briefing USER messages from the questioner after accept', async () => {
-      const res = await request(app)
-        .post(`/api/v1/requests/${briefingRequestId}/accept`)
-        .set('Authorization', `Bearer ${questioner.token}`);
-
-      expect(res.status).toBe(200);
-
+    it('posts question-info USER messages from the questioner as the first messages', async () => {
       const messages = await prisma.message.findMany({
         where: { answerRequestId: briefingRequestId },
         orderBy: { createdAt: 'asc' },
       });
 
-      expect(messages).toHaveLength(7);
+      // Question info first: location, detail, acceptance criteria (3 USER messages).
+      expect(messages[0].type).toBe('USER');
+      expect(messages[0].senderId).toBe(questionerUserId);
+      expect(messages[0].text).toBe('Location: 1 Spring Garden Rd, Halifax, NS');
+      expect(messages[0].visibleToUserId).toBeNull();
 
-      expect(messages[0].type).toBe('SYSTEM');
-      expect(messages[0].visibleToUserId).toBe(responderUserId);
-      expect(messages[1].type).toBe('SYSTEM');
-      expect(messages[1].visibleToUserId).toBe(questionerUserId);
+      expect(messages[1].type).toBe('USER');
+      expect(messages[1].senderId).toBe(questionerUserId);
+      expect(messages[1].text).toBe('Is the branch busy right now?');
 
-      expect(messages[2].type).toBe('SYSTEM');
-      expect(messages[2].text).toMatch(/You approved @r to respond/);
-      expect(messages[2].visibleToUserId).toBe(questionerUserId);
+      expect(messages[2].type).toBe('USER');
+      expect(messages[2].senderId).toBe(questionerUserId);
+      expect(messages[2].text).toBe('Acceptance criteria: Photo of the queue or head-count.');
 
+      // Followed by the 2 role-specific system messages.
       expect(messages[3].type).toBe('SYSTEM');
-      expect(messages[3].text).toBe('Request accepted. Send your response.');
-      expect(messages[3].visibleToUserId).toBe(responderUserId);
-
-      expect(messages[4].type).toBe('USER');
-      expect(messages[4].senderId).toBe(questionerUserId);
-      expect(messages[4].text).toBe('Location: 1 Spring Garden Rd, Halifax, NS');
-
-      expect(messages[5].type).toBe('USER');
-      expect(messages[5].senderId).toBe(questionerUserId);
-      expect(messages[5].text).toBe('Is the branch busy right now?');
-
-      expect(messages[6].type).toBe('USER');
-      expect(messages[6].senderId).toBe(questionerUserId);
-      expect(messages[6].text).toBe('Acceptance criteria: Photo of the queue or head-count.');
+      expect(messages[4].type).toBe('SYSTEM');
+      expect(messages).toHaveLength(5);
     });
 
-    it('exposes briefing messages to both participants via GET messages', async () => {
+    it('exposes question-info messages to both participants via GET messages', async () => {
       const [responderView, questionerView] = await Promise.all([
         request(app)
           .get(`/api/v1/requests/${briefingRequestId}/messages`)
@@ -357,6 +332,23 @@ describe('requests lifecycle', () => {
       expect(responderTexts).toContain('Location: 1 Spring Garden Rd, Halifax, NS');
       expect(responderTexts).toContain('Is the branch busy right now?');
       expect(questionerTexts).toContain('Acceptance criteria: Photo of the queue or head-count.');
+    });
+
+    it('does not re-post question info when the request is later accepted', async () => {
+      const before = await prisma.message.findMany({
+        where: { answerRequestId: briefingRequestId, type: 'USER' },
+      });
+
+      const res = await request(app)
+        .post(`/api/v1/requests/${briefingRequestId}/accept`)
+        .set('Authorization', `Bearer ${questioner.token}`);
+      expect(res.status).toBe(200);
+
+      const after = await prisma.message.findMany({
+        where: { answerRequestId: briefingRequestId, type: 'USER' },
+      });
+      // No new USER messages are added by accept — question info lives at request-create.
+      expect(after).toHaveLength(before.length);
     });
   });
 

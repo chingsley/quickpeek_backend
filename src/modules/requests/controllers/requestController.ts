@@ -4,7 +4,7 @@ import Joi from 'joi';
 import prisma from '../../../core/database/prisma/client';
 import { emitToUser } from '../../../core/socket/socket.server';
 import {
-  createAcceptanceBriefingMessages,
+  createQuestionBriefingMessages,
   createSystemMessage,
 } from '../../../common/utils/messages.utils';
 import { calculateHaversineDistance } from '../../../common/utils/geo.utils';
@@ -55,6 +55,9 @@ type CreateRequestQuestion = {
   latitude: number | null;
   longitude: number | null;
   restrictToNearby: boolean;
+  address: string | null;
+  detail: string;
+  acceptanceCriteria: string;
 };
 
 const createRequestQuestionSelect = {
@@ -63,6 +66,9 @@ const createRequestQuestionSelect = {
   latitude: true,
   longitude: true,
   restrictToNearby: true,
+  address: true,
+  detail: true,
+  acceptanceCriteria: true,
 } as Prisma.QuestionSelect;
 
 const requestQuestionSummarySelect = {
@@ -173,7 +179,8 @@ const fetchRequestWithQuestion = (id: string): Promise<RequestWithQuestion | nul
 /**
  * POST /questions/:id/requests
  * Responder-only. Guards: own question, already requested, closed question, outside radius.
- * On success: AnswerRequest PENDING + 2 role-specific SYSTEM messages + emit request:new.
+ * On success: AnswerRequest PENDING + question-info USER messages from the questioner
+ * (location, detail, acceptance criteria) + 2 role-specific SYSTEM messages + emit request:new.
  */
 export const createRequest = async (req: AuthedRequest, res: Response) => {
   try {
@@ -260,6 +267,22 @@ export const createRequest = async (req: AuthedRequest, res: Response) => {
       },
     });
 
+    // Question info is posted as USER messages from the questioner so it appears
+    // first in the chat for both participants, before the role-specific system messages.
+    await createQuestionBriefingMessages({
+      questionId,
+      answerRequestId: request.id,
+      questionerId: question.userId,
+      responderId,
+      question: {
+        address: question.address,
+        latitude: question.latitude,
+        longitude: question.longitude,
+        detail: question.detail,
+        acceptanceCriteria: question.acceptanceCriteria,
+      },
+    });
+
     await Promise.all([
       createSystemMessage({
         questionId,
@@ -330,20 +353,6 @@ export const acceptRequest = async (req: AuthedRequest, res: Response) => {
       senderId: userId,
       text: 'Request accepted. Send your response.',
       visibleToUserId: request.responderId,
-    });
-
-    await createAcceptanceBriefingMessages({
-      questionId: request.questionId,
-      answerRequestId: id,
-      questionerId: userId,
-      responderId: request.responderId,
-      question: {
-        address: request.question.address,
-        latitude: request.question.latitude,
-        longitude: request.question.longitude,
-        detail: request.question.detail,
-        acceptanceCriteria: request.question.acceptanceCriteria,
-      },
     });
 
     emitToUser(request.responderId, 'request:accepted', {

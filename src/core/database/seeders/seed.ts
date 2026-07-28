@@ -8,7 +8,9 @@ import {
 } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import { faker } from '@faker-js/faker';
-import { createAcceptanceBriefingMessages } from '../../../common/utils/messages.utils';
+import { createQuestionBriefingMessages } from '../../../common/utils/messages.utils';
+import { recomputeUserRatingAggregate } from '../../../common/utils/ratings';
+import redisClient from '../../../core/config/redis';
 
 const prisma = new PrismaClient();
 
@@ -107,36 +109,252 @@ async function createSystemMessage(opts: {
   });
 }
 
-async function createIncomingPendingRequest(opts: {
-  questionId: string;
-  questionerId: string;
-  responder: { id: string; username: string; };
+/**
+ * Mirrors `createRequest` in requestController.ts: AnswerRequest PENDING +
+ * question-info USER messages from the questioner + 2 role-specific SYSTEM
+ * messages. This is the only entry point for seeding a request-to-respond.
+ */
+async function seedRequestToRespond(opts: {
+  question: {
+    id: string;
+    userId: string;
+    address: string | null;
+    latitude: number | null;
+    longitude: number | null;
+    detail: string;
+    acceptanceCriteria: string;
+  };
+  responder: { id: string; username: string };
 }) {
   const request = await prisma.answerRequest.create({
     data: {
-      questionId: opts.questionId,
+      questionId: opts.question.id,
       responderId: opts.responder.id,
-      questionerId: opts.questionerId,
+      questionerId: opts.question.userId,
       status: AnswerRequestStatus.PENDING,
     },
   });
 
+  // Question info first, posted as USER messages from the questioner.
+  await createQuestionBriefingMessages({
+    questionId: opts.question.id,
+    answerRequestId: request.id,
+    questionerId: opts.question.userId,
+    responderId: opts.responder.id,
+    question: {
+      address: opts.question.address,
+      latitude: opts.question.latitude,
+      longitude: opts.question.longitude,
+      detail: opts.question.detail,
+      acceptanceCriteria: opts.question.acceptanceCriteria,
+    },
+  });
+
   await createSystemMessage({
-    questionId: opts.questionId,
+    questionId: opts.question.id,
     answerRequestId: request.id,
     senderId: opts.responder.id,
     text: `Your request to answer the question has been sent to the question creator. We'll let you know when they respond.`,
     visibleToUserId: opts.responder.id,
   });
   await createSystemMessage({
-    questionId: opts.questionId,
+    questionId: opts.question.id,
     answerRequestId: request.id,
     senderId: opts.responder.id,
     text: `You have a request by @${opts.responder.username} to respond to your question. View their profile before accepting the request.`,
-    visibleToUserId: opts.questionerId,
+    visibleToUserId: opts.question.userId,
   });
 
   return request;
+}
+
+/**
+ * Mirrors `acceptRequest`: AnswerRequest PENDING → ACCEPTED with respondedAt,
+ * plus 2 role-specific SYSTEM messages. No question-info re-posting.
+ */
+async function seedAcceptRequest(opts: {
+  questionId: string;
+  requestId: string;
+  questionerId: string;
+  questionerUsernameIs?: string;
+  responder: { id: string; username: string };
+}) {
+  await prisma.answerRequest.update({
+    where: { id: opts.requestId },
+    data: { status: AnswerRequestStatus.ACCEPTED, respondedAt: new Date() },
+  });
+
+  await createSystemMessage({
+    questionId: opts.questionId,
+    answerRequestId: opts.requestId,
+    senderId: opts.questionerId,
+    text: `You approved @${opts.responder.username} to respond`,
+    visibleToUserId: opts.questionerId,
+  });
+  await createSystemMessage({
+    questionId: opts.questionId,
+    answerRequestId: opts.requestId,
+    senderId: opts.questionerId,
+    text: 'Request accepted. Send your response.',
+    visibleToUserId: opts.responder.id,
+  });
+}
+
+/**
+ * Mirrors `rejectRequest`: AnswerRequest → REJECTED with reason + respondedAt,
+ * QuestionResponderBlock row, and 1 SYSTEM message to the responder only.
+ */
+async function seedRejectRequest(opts: {
+  questionId: string;
+  requestId: string;
+  questionerId: string;
+  responder: { id: string; username: string };
+  rejectionReason: string;
+}) {
+  await prisma.$transaction(async (tx) => {
+    await tx.answerRequest.update({
+      where: { id: opts.requestId },
+      data: {
+        status: AnswerRequestStatus.REJECTED,
+        rejectionReason: opts.rejectionReason,
+        respondedAt: new Date(),
+      },
+    });
+    await tx.questionResponderBlock.create({
+      data: {
+        questionId: opts.questionId,
+        responderId: opts.responder.id,
+        answerRequestId: opts.requestId,
+        rejectionReason: opts.rejectionReason,
+      },
+    });
+  });
+
+  await createSystemMessage({
+    questionId: opts.questionId,
+    answerRequestId: opts.requestId,
+    senderId: opts.questionerId,
+    text: `Your request was declined: ${opts.rejectionReason}`,
+    visibleToUserId: opts.responder.id,
+  });
+}
+
+/**
+ * Mirrors `sendMessage`: a plain USER message. Only valid while the request
+ * is ACCEPTED; the seed is responsible for calling this in the right order.
+ */
+async function seedUserMessage(opts: {
+  questionId: string;
+  answerRequestId: string;
+  senderId: string;
+  text: string;
+  createdAt?: Date;
+  readAt?: Date | null;
+}) {
+  return prisma.message.create({
+    data: {
+      questionId: opts.questionId,
+      answerRequestId: opts.answerRequestId,
+      senderId: opts.senderId,
+      text: opts.text,
+      type: MessageType.USER,
+      ...(opts.createdAt ? { createdAt: opts.createdAt } : {}),
+      ...(opts.readAt !== undefined ? { readAt: opts.readAt } : {}),
+    },
+  });
+}
+
+/**
+ * Mirrors `closeQuestion`: Question → CLOSED, closeReason, closedAt, and
+ * answeredAt (only when reason === 'Question answered'). Every PENDING request
+ * on the question transitions to CLOSED_ANSWERED with a SYSTEM notice to that
+ * responder. ACCEPTED requests are NOT touched.
+ */
+async function seedCloseQuestion(opts: {
+  questionId: string;
+  reason: string;
+}) {
+  const now = new Date();
+  const isAnsweredClose = opts.reason === 'Question answered';
+  const systemText = isAnsweredClose
+    ? 'Question has been answered.'
+    : 'Question has been closed.';
+
+  await prisma.question.update({
+    where: { id: opts.questionId },
+    data: {
+      status: QuestionStatus.CLOSED,
+      closeReason: opts.reason,
+      closedAt: now,
+      answeredAt: isAnsweredClose ? now : null,
+    },
+  });
+
+  const pendingRequests = await prisma.answerRequest.findMany({
+    where: { questionId: opts.questionId, status: AnswerRequestStatus.PENDING },
+    select: { id: true, responderId: true },
+  });
+
+  if (pendingRequests.length > 0) {
+    await prisma.answerRequest.updateMany({
+      where: { id: { in: pendingRequests.map((r) => r.id) } },
+      data: { status: AnswerRequestStatus.CLOSED_ANSWERED, respondedAt: now },
+    });
+    for (const r of pendingRequests) {
+      await createSystemMessage({
+        questionId: opts.questionId,
+        answerRequestId: r.id,
+        senderId: r.responderId,
+        text: systemText,
+        visibleToUserId: r.responderId,
+      });
+    }
+  }
+}
+
+/**
+ * Mirrors mutual review reveal: writes both Review rows with isRevealed=true
+ * and recomputes the canonical UserRating aggregates via the shared helper.
+ * Caller must ensure the question was closed as answered (sets answeredAt) so
+ * `isReviewUnlocked` would pass.
+ */
+async function seedMutualReview(opts: {
+  requestId: string;
+  questionerId: string;
+  responderId: string;
+  questionerStars: number;
+  questionerComment?: string;
+  responderStars: number;
+  responderComment?: string;
+}) {
+  const revealedAt = new Date();
+  await prisma.review.createMany({
+    data: [
+      {
+        answerRequestId: opts.requestId,
+        raterId: opts.questionerId,
+        rateeId: opts.responderId,
+        raterRole: ReviewerRole.QUESTIONER,
+        stars: opts.questionerStars,
+        comment: opts.questionerComment ?? null,
+        isRevealed: true,
+        revealedAt,
+      },
+      {
+        answerRequestId: opts.requestId,
+        raterId: opts.responderId,
+        rateeId: opts.questionerId,
+        raterRole: ReviewerRole.RESPONDER,
+        stars: opts.responderStars,
+        comment: opts.responderComment ?? null,
+        isRevealed: true,
+        revealedAt,
+      },
+    ],
+  });
+
+  await recomputeUserRatingAggregate(opts.responderId, RatingRole.AS_RESPONDER);
+  await recomputeUserRatingAggregate(opts.questionerId, RatingRole.AS_QUESTIONER);
 }
 
 async function seed() {
@@ -229,9 +447,8 @@ async function seed() {
       categorySlug: 'cooking',
       price: 4,
       acceptanceCriteria: 'Recipe that has been tested at altitude, with photos if possible.',
-      status: QuestionStatus.CLOSED,
+      status: QuestionStatus.OPEN,
       withLocation: false,
-      closeReason: 'Question answered',
     },
     {
       title: 'Looking for a bike mechanic',
@@ -283,134 +500,68 @@ async function seed() {
     console.log(`  Created question: ${question.title}`);
   }
 
-  // Requests on test03's first OPEN question (driving lesson)
+  // Requests on test03's first OPEN question (driving lesson).
+  // The driving lesson stays OPEN with several parallel chats in different states.
   const drivingQuestion = outboxQuestions[0];
+  const drivingQ = await prisma.question.findUnique({ where: { id: drivingQuestion.id } });
+  if (!drivingQ) throw new Error('Driving lesson question not found after creation');
+
   const drivingPendingResponders = [users[0], users[1], users[2]];
   const drivingAcceptedResponders = [users[4], users[5], users[6]];
   const drivingRejectedResponders = [users[7], users[8], users[9]];
-  const requesterDefs = [
-    ...drivingPendingResponders.map((user) => ({ user, status: AnswerRequestStatus.PENDING })),
-    ...drivingAcceptedResponders.map((user) => ({ user, status: AnswerRequestStatus.ACCEPTED })),
-    ...drivingRejectedResponders.map((user) => ({ user, status: AnswerRequestStatus.REJECTED })),
-  ];
 
-  for (const rdef of requesterDefs) {
-    const request = await prisma.answerRequest.create({
-      data: {
-        questionId: drivingQuestion.id,
-        responderId: rdef.user.id,
-        questionerId: test03.id,
-        status: rdef.status,
-        rejectionReason:
-          rdef.status === AnswerRequestStatus.REJECTED ? pick(REJECTION_REASONS) : null,
-        respondedAt:
-          rdef.status === AnswerRequestStatus.PENDING ? null : new Date(Date.now() - 10 * 60 * 1000),
-      },
-    });
-
-    // Initial role-specific system messages
-    await createSystemMessage({
-      questionId: drivingQuestion.id,
-      answerRequestId: request.id,
-      senderId: rdef.user.id,
-      text: `Your request to answer the question has been sent to the question creator. We'll let you know when they respond.`,
-      visibleToUserId: rdef.user.id,
-    });
-    await createSystemMessage({
-      questionId: drivingQuestion.id,
-      answerRequestId: request.id,
-      senderId: rdef.user.id,
-      text: `You have a request by @${rdef.user.username} to respond to your question. View their profile before accepting the request.`,
-      visibleToUserId: test03.id,
-    });
-
-    if (rdef.status === AnswerRequestStatus.ACCEPTED) {
-      await createSystemMessage({
-        questionId: drivingQuestion.id,
-        answerRequestId: request.id,
-        senderId: test03.id,
-        text: `You approved @${rdef.user.username} to respond`,
-        visibleToUserId: test03.id,
-      });
-      await createSystemMessage({
-        questionId: drivingQuestion.id,
-        answerRequestId: request.id,
-        senderId: test03.id,
-        text: 'Request accepted. Send your response.',
-        visibleToUserId: rdef.user.id,
-      });
-
-      const drivingQ = await prisma.question.findUnique({ where: { id: drivingQuestion.id } });
-      if (drivingQ) {
-        await createAcceptanceBriefingMessages({
-          questionId: drivingQuestion.id,
-          answerRequestId: request.id,
-          questionerId: test03.id,
-          responderId: rdef.user.id,
-          question: {
-            address: drivingQ.address,
-            latitude: drivingQ.latitude,
-            longitude: drivingQ.longitude,
-            detail: drivingQ.detail,
-            acceptanceCriteria: drivingQ.acceptanceCriteria,
-          },
-        });
-      }
-
-      // Some user conversation
-      await prisma.message.create({
-        data: {
-          questionId: drivingQuestion.id,
-          answerRequestId: request.id,
-          senderId: rdef.user.id,
-          text: 'Hi! I can help with the driving lesson. When are you free?',
-        },
-      });
-      await prisma.message.create({
-        data: {
-          questionId: drivingQuestion.id,
-          answerRequestId: request.id,
-          senderId: test03.id,
-          text: 'Tomorrow morning works for me.',
-        },
-      });
-    }
-
-    if (rdef.status === AnswerRequestStatus.REJECTED) {
-      await createSystemMessage({
-        questionId: drivingQuestion.id,
-        answerRequestId: request.id,
-        senderId: test03.id,
-        text: `Your request was declined: ${request.rejectionReason}`,
-        visibleToUserId: rdef.user.id,
-      });
-      await prisma.questionResponderBlock.create({
-        data: {
-          questionId: drivingQuestion.id,
-          responderId: rdef.user.id,
-          answerRequestId: request.id,
-          rejectionReason: request.rejectionReason,
-        },
-      });
-    }
+  console.log('\nSeeding driving-lesson requests (pending / accepted / rejected)…');
+  for (const responder of drivingPendingResponders) {
+    await seedRequestToRespond({ question: drivingQ, responder });
   }
+
+  for (const responder of drivingAcceptedResponders) {
+    const request = await seedRequestToRespond({ question: drivingQ, responder });
+    await seedAcceptRequest({
+      questionId: drivingQuestion.id,
+      requestId: request.id,
+      questionerId: test03.id,
+      responder,
+    });
+    // Real answer exchange — both participants see a substantive thread.
+    await seedUserMessage({
+      questionId: drivingQuestion.id,
+      answerRequestId: request.id,
+      senderId: responder.id,
+      text: `Hi! I'm ${responder.name.split(' ')[0]} and I can help with the driving lesson. When are you free this week?`,
+    });
+    await seedUserMessage({
+      questionId: drivingQuestion.id,
+      answerRequestId: request.id,
+      senderId: test03.id,
+      text: 'Tomorrow morning works. I\'m near Morris St — can you come to that area?',
+    });
+    await seedUserMessage({
+      questionId: drivingQuestion.id,
+      answerRequestId: request.id,
+      senderId: responder.id,
+      text: 'Yes, I can be there by 9am. I\'ll bring the cones and a clipboard.',
+    });
+  }
+
+  for (const responder of drivingRejectedResponders) {
+    const request = await seedRequestToRespond({ question: drivingQ, responder });
+    const reason = pick(REJECTION_REASONS);
+    await seedRejectRequest({
+      questionId: drivingQuestion.id,
+      requestId: request.id,
+      questionerId: test03.id,
+      responder,
+      rejectionReason: reason,
+    });
+  }
+
 
   console.log('\nCreating incoming requests awaiting test03 approval…');
   const scotiaQuestion = outboxQuestions.find((q) => q.title === 'Is the Scotia branch busy?')!;
   const faucetQuestion = outboxQuestions.find((q) => q.title === 'How to fix a leaky faucet?')!;
 
-  const awaitingApprovalSeeds: Array<{
-    questionId: string;
-    responder: (typeof users)[number];
-    label: string;
-  }> = [
-      { questionId: drivingQuestion.id, responder: users[0], label: 'Driving lesson pending (Alice Morgan)' },
-      { questionId: drivingQuestion.id, responder: users[1], label: 'Driving lesson pending (Bob Chen)' },
-      { questionId: drivingQuestion.id, responder: users[2], label: 'Driving lesson pending (Carla Diaz)' },
-      { questionId: scotiaQuestion.id, responder: users[4], label: 'Scotia branch (Elena Rossi)' },
-      { questionId: faucetQuestion.id, responder: users[5], label: 'Leaky faucet (Felix Nguyen)' },
-    ];
-
+  // Extra OPEN questions posted by test03, each with one pending request.
   const extraAwaitingApprovalDefs = [
     {
       title: 'Street parking on Morris?',
@@ -448,35 +599,29 @@ async function seed() {
       },
     });
     outboxQuestions.push({ id: question.id, title: question.title });
-    awaitingApprovalSeeds.push({
-      questionId: question.id,
-      responder: def.responder,
-      label: `${def.title} (${def.responder.name})`,
-    });
-  }
-
-  let awaitingApprovalCount = 0;
-  for (const seed of awaitingApprovalSeeds) {
-    const existing = await prisma.answerRequest.findFirst({
-      where: {
-        questionId: seed.questionId,
-        responderId: seed.responder.id,
-        questionerId: test03.id,
-      },
-    });
-    if (!existing) {
-      await createIncomingPendingRequest({
-        questionId: seed.questionId,
-        questionerId: test03.id,
-        responder: seed.responder,
-      });
+    const fullQuestion = await prisma.question.findUnique({ where: { id: question.id } });
+    if (fullQuestion) {
+      await seedRequestToRespond({ question: fullQuestion, responder: def.responder });
     }
-    awaitingApprovalCount++;
-    console.log(`  Pending incoming: ${seed.label}`);
+    console.log(`  Pending incoming: ${def.title} (${def.responder.name})`);
   }
 
-  if (awaitingApprovalCount < 5) {
-    throw new Error(`Expected at least 5 awaiting-your-approval seeds, got ${awaitingApprovalCount}`);
+  // Pending requests on test03's other OPEN outbox questions (Scotia + faucet).
+  // Driving-lesson pending requests were already created above.
+  for (const [question, responder] of [
+    [scotiaQuestion, users[4]],
+    [faucetQuestion, users[5]],
+  ] as const) {
+    const fullQuestion = await prisma.question.findUnique({ where: { id: question.id } });
+    if (fullQuestion) {
+      const existing = await prisma.answerRequest.findFirst({
+        where: { questionId: question.id, responderId: responder.id, questionerId: test03.id },
+      });
+      if (!existing) {
+        await seedRequestToRespond({ question: fullQuestion, responder });
+        console.log(`  Pending incoming: ${question.title} (${responder.name})`);
+      }
+    }
   }
 
   console.log('\nCreating questions from other users (home feed for test03)…');
@@ -710,6 +855,9 @@ async function seed() {
     },
   ];
 
+  // Questions where an answer was provided. Most stay OPEN (the common real-world
+  // state — the questioner hasn't closed yet); a couple are closed-as-answered to
+  // exercise the full close + review flow alongside the pancake seed.
   const answeredDefs: FeedQuestionDef[] = [
     {
       title: 'Farmers market still on?',
@@ -722,39 +870,43 @@ async function seed() {
         'Yes, the market is running until 1pm today. Plenty of parking on Agricola.',
     },
     {
+      // Answer given but question still OPEN — the common real-world state.
       title: 'Ice cream truck location?',
       categorySlug: 'location',
       price: 2,
       detail: 'Where is the ice cream truck parked near the Common today?',
       acceptanceCriteria: 'Photo of the truck or a pin on the block where it is parked.',
-      request: 'answered',
+      request: 'approved',
       responderReply: 'It is parked on the south side of the Common near the playground.',
     },
     {
+      // Answer given but question still OPEN — the common real-world state.
       title: 'Bus delay on route 1?',
       categorySlug: 'location',
       price: 3,
       detail: 'Is route 1 running on time through Quinpool this hour?',
       acceptanceCriteria: 'Screenshot from the transit app or photo at the stop.',
-      request: 'answered',
+      request: 'approved',
       responderReply: 'Route 1 is about 8 minutes behind schedule at Quinpool.',
     },
     {
+      // Answer given but question still OPEN — the common real-world state.
       title: 'Pizza place delivery time?',
       categorySlug: 'cooking',
       price: 4,
       detail: 'How long is delivery from the pizza place on Quinpool right now?',
       acceptanceCriteria: 'Quoted delivery time from staff or the online order page.',
-      request: 'answered',
+      request: 'approved',
       responderReply: 'They quoted 35–40 minutes for delivery to this area.',
     },
     {
+      // Answer given but question still OPEN — the common real-world state.
       title: 'Park playground open?',
       categorySlug: 'location',
       price: 2,
       detail: 'Is the playground at the neighbourhood park open and dry after the rain?',
       acceptanceCriteria: 'Photo of the playground surface and equipment.',
-      request: 'answered',
+      request: 'approved',
       responderReply: 'Playground is open and mostly dry — only a small puddle near the swings.',
     },
     {
@@ -863,114 +1015,70 @@ async function seed() {
 
     if (!def.request) return;
 
-    const requestStatus =
-      def.request === 'pending'
-        ? AnswerRequestStatus.PENDING
-        : def.request === 'approved' || def.request === 'answered'
-          ? AnswerRequestStatus.ACCEPTED
-          : AnswerRequestStatus.REJECTED;
+    const fullQuestion = {
+      id: q.id,
+      userId: questioner.id,
+      address,
+      latitude,
+      longitude,
+      detail: def.detail,
+      acceptanceCriteria: def.acceptanceCriteria,
+    };
 
-    const rejectionReason =
-      def.request === 'rejected' ? def.rejectionReason ?? pick(REJECTION_REASONS) : null;
+    const request = await seedRequestToRespond({ question: fullQuestion, responder: test03 });
 
-    const request = await prisma.answerRequest.create({
-      data: {
-        questionId: q.id,
-        responderId: test03.id,
-        questionerId: questioner.id,
-        status: requestStatus,
-        rejectionReason,
-        respondedAt:
-          requestStatus === AnswerRequestStatus.PENDING
-            ? null
-            : new Date(Date.now() - 15 * 60 * 1000),
-      },
-    });
-
-    await createSystemMessage({
-      questionId: q.id,
-      answerRequestId: request.id,
-      senderId: test03.id,
-      text: `Your request to answer the question has been sent to the question creator. We'll let you know when they respond.`,
-      visibleToUserId: test03.id,
-    });
-    await createSystemMessage({
-      questionId: q.id,
-      answerRequestId: request.id,
-      senderId: test03.id,
-      text: `You have a request by @${test03.username} to respond to your question. View their profile before accepting the request.`,
-      visibleToUserId: questioner.id,
-    });
-
-    if (requestStatus === AnswerRequestStatus.ACCEPTED) {
-      await createSystemMessage({
-        questionId: q.id,
-        answerRequestId: request.id,
-        senderId: questioner.id,
-        text: `You approved @${test03.username} to respond`,
-        visibleToUserId: questioner.id,
-      });
-      await createSystemMessage({
-        questionId: q.id,
-        answerRequestId: request.id,
-        senderId: questioner.id,
-        text: 'Request accepted. Send your response.',
-        visibleToUserId: test03.id,
-      });
-
-      await createAcceptanceBriefingMessages({
-        questionId: q.id,
-        answerRequestId: request.id,
-        questionerId: questioner.id,
-        responderId: test03.id,
-        question: {
-          address: q.address,
-          latitude: q.latitude,
-          longitude: q.longitude,
-          detail: q.detail,
-          acceptanceCriteria: q.acceptanceCriteria,
-        },
-      });
-    }
-
-    if (def.request === 'answered') {
-      await prisma.message.create({
-        data: {
-          questionId: q.id,
-          answerRequestId: request.id,
-          senderId: test03.id,
-          text:
-            def.responderReply ??
-            'Here is the information you asked for — let me know if you need anything else.',
-          type: MessageType.USER,
-        },
-      });
-      await prisma.message.create({
-        data: {
-          questionId: q.id,
-          answerRequestId: request.id,
-          senderId: questioner.id,
-          text: 'Perfect, thank you!',
-          type: MessageType.USER,
-        },
-      });
+    if (def.request === 'pending') {
+      // Stays PENDING — nothing more to do.
+      return;
     }
 
     if (def.request === 'rejected') {
-      await createSystemMessage({
+      const reason = def.rejectionReason ?? pick(REJECTION_REASONS);
+      await seedRejectRequest({
         questionId: q.id,
-        answerRequestId: request.id,
-        senderId: questioner.id,
-        text: `Your request was declined: ${rejectionReason}`,
-        visibleToUserId: test03.id,
+        requestId: request.id,
+        questionerId: questioner.id,
+        responder: test03,
+        rejectionReason: reason,
       });
-      await prisma.questionResponderBlock.create({
-        data: {
-          questionId: q.id,
-          responderId: test03.id,
-          answerRequestId: request.id,
-          rejectionReason,
-        },
+      return;
+    }
+
+    // 'approved' or 'answered' — both go through accept + real answer exchange.
+    await seedAcceptRequest({
+      questionId: q.id,
+      requestId: request.id,
+      questionerId: questioner.id,
+      responder: test03,
+    });
+
+    await seedUserMessage({
+      questionId: q.id,
+      answerRequestId: request.id,
+      senderId: test03.id,
+      text:
+        def.responderReply ??
+        'Here is the information you asked for — let me know if you need anything else.',
+    });
+    await seedUserMessage({
+      questionId: q.id,
+      answerRequestId: request.id,
+      senderId: questioner.id,
+      text: 'Perfect, thank you! That\'s exactly what I needed.',
+    });
+
+    if (def.request === 'answered') {
+      // Close the question as answered and run mutual review reveal. This is
+      // the canonical end state for a fully-resolved request.
+      await seedCloseQuestion({ questionId: q.id, reason: 'Question answered' });
+      await seedMutualReview({
+        requestId: request.id,
+        questionerId: questioner.id,
+        responderId: test03.id,
+        questionerStars: 5,
+        questionerComment: pick(REVIEW_COMMENTS),
+        responderStars: 4,
+        responderComment: 'Clear question, easy to help.',
       });
     }
   }
@@ -1111,26 +1219,34 @@ async function seed() {
     },
   });
 
-  const mkSortAcceptedRequest = (questionId: string) =>
-    prisma.answerRequest.create({
-      data: {
-        questionId,
-        responderId: test03.id,
-        questionerId: sortAuthor.id,
-        status: AnswerRequestStatus.ACCEPTED,
-        respondedAt: new Date(),
-      },
+  // For T1 (unread) and T4 (interacted) fixtures, drive the full realistic
+  // flow: test03 requests → sortAuthor accepts. The flow's system+briefing
+  // messages get back-dated below so they don't disturb the carefully tuned
+  // sort ordering these fixtures exist to verify.
+  const sortAcceptedQuestions = [
+    sortUnreadFirstQ,
+    sortUnreadSecondQ,
+    sortInteractedOlderQ,
+    sortInteractedNewerQ,
+  ];
+  const sortAcceptedRequests: { id: string; questionId: string }[] = [];
+  for (const question of sortAcceptedQuestions) {
+    const fullQuestion = await prisma.question.findUnique({ where: { id: question.id } });
+    if (!fullQuestion) continue;
+    const request = await seedRequestToRespond({ question: fullQuestion, responder: test03 });
+    await seedAcceptRequest({
+      questionId: question.id,
+      requestId: request.id,
+      questionerId: sortAuthor.id,
+      responder: test03,
     });
-
-  const sortUnreadFirstReq = await mkSortAcceptedRequest(sortUnreadFirstQ.id);
-  const sortUnreadSecondReq = await mkSortAcceptedRequest(sortUnreadSecondQ.id);
-  const sortInteractedOlderReq = await mkSortAcceptedRequest(sortInteractedOlderQ.id);
-  const sortInteractedNewerReq = await mkSortAcceptedRequest(sortInteractedNewerQ.id);
+    sortAcceptedRequests.push({ id: request.id, questionId: question.id });
+  }
 
   await prisma.message.create({
     data: {
       questionId: sortUnreadFirstQ.id,
-      answerRequestId: sortUnreadFirstReq.id,
+      answerRequestId: sortAcceptedRequests[0].id,
       senderId: sortAuthor.id,
       text: 'Oldest unread for sort seed',
       type: MessageType.USER,
@@ -1140,7 +1256,7 @@ async function seed() {
   await prisma.message.create({
     data: {
       questionId: sortUnreadSecondQ.id,
-      answerRequestId: sortUnreadSecondReq.id,
+      answerRequestId: sortAcceptedRequests[1].id,
       senderId: sortAuthor.id,
       text: 'Second oldest unread for sort seed',
       type: MessageType.USER,
@@ -1148,10 +1264,7 @@ async function seed() {
     },
   });
 
-  for (const [questionId, answerRequestId] of [
-    [sortInteractedOlderQ.id, sortInteractedOlderReq.id],
-    [sortInteractedNewerQ.id, sortInteractedNewerReq.id],
-  ] as const) {
+  for (const { questionId, id: answerRequestId } of sortAcceptedRequests.slice(2)) {
     await prisma.message.create({
       data: {
         questionId,
@@ -1165,103 +1278,98 @@ async function seed() {
     });
   }
 
+  // Back-date every message written by the realistic flow on the sort fixtures
+  // to a moment before the earliest sort marker (2020-01-01), and mark them
+  // read. This keeps the verified feed sort ordering intact while preserving
+  // an end-to-end realistic chat thread on each request.
+  const sortFlowBackdate = new Date('2019-12-31T10:00:00.000Z');
+  const sortFlowReadAt = new Date('2019-12-31T11:00:00.000Z');
+  const sortRequestIds = sortAcceptedRequests.map((r) => r.id);
+  await prisma.message.updateMany({
+    where: {
+      answerRequestId: { in: sortRequestIds },
+      createdAt: { gt: sortFlowBackdate },
+      // Only touch the flow messages (briefing + system + accept), not the
+      // tuned sort-marker messages written above with explicit createdAt.
+      text: { notIn: ['Oldest unread for sort seed', 'Second oldest unread for sort seed', 'Read message for sort seed'] },
+    },
+    data: { createdAt: sortFlowBackdate, readAt: sortFlowReadAt },
+  });
+
   console.log('  Sort T1 → T5 priority examples seeded (search "Sort T" in Home feed)');
 
-  // Seeded review for the ANSWERED pancake question (single accepted request, both sides reviewed)
+  // -------------------------------------------------------------------------
+  // "Best pancake recipe?" — full happy-path flow for david_p (test03) and
+  // henry_k (users[7]). henry_k answers, david_p closes as answered, both
+  // review. A second pending request on the same question (from iris_j) is
+  // closed into CLOSED_ANSWERED when david_p closes the question, exercising
+  // that status transition. This is also the canonical end-to-end demo:
+  // logging in as either party shows the same chat, same status, same
+  // question, discoverable from Home and the conversations list.
+  // -------------------------------------------------------------------------
+  console.log('\nSeeding full happy-path flow on "Best pancake recipe?"…');
   const pancakeQuestion = outboxQuestions.find((q) => q.title === 'Best pancake recipe?');
-  if (pancakeQuestion) {
-    const acceptedResponder = users[7];
-    const request = await prisma.answerRequest.create({
-      data: {
-        questionId: pancakeQuestion.id,
-        responderId: acceptedResponder.id,
-        questionerId: test03.id,
-        status: AnswerRequestStatus.ACCEPTED,
-        respondedAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
-      },
-    });
-    await createSystemMessage({
-      questionId: pancakeQuestion.id,
-      answerRequestId: request.id,
-      senderId: test03.id,
-      text: `You approved @${acceptedResponder.username} to respond`,
-      visibleToUserId: test03.id,
-    });
-    await createSystemMessage({
-      questionId: pancakeQuestion.id,
-      answerRequestId: request.id,
-      senderId: test03.id,
-      text: 'Request accepted. Send your response.',
-      visibleToUserId: acceptedResponder.id,
-    });
-    await prisma.message.create({
-      data: {
-        questionId: pancakeQuestion.id,
-        answerRequestId: request.id,
-        senderId: acceptedResponder.id,
-        text: 'Here is my tested recipe: 2 cups flour, 2 eggs, 1.5 cups buttermilk...',
-      },
-    });
-
-    const reviewTime = new Date();
-    await prisma.review.createMany({
-      data: [
-        {
-          answerRequestId: request.id,
-          raterId: test03.id,
-          rateeId: acceptedResponder.id,
-          raterRole: ReviewerRole.QUESTIONER,
-          stars: 5,
-          comment: pick(REVIEW_COMMENTS),
-          isRevealed: true,
-          revealedAt: reviewTime,
-        },
-        {
-          answerRequestId: request.id,
-          raterId: acceptedResponder.id,
-          rateeId: test03.id,
-          raterRole: ReviewerRole.RESPONDER,
-          stars: 4,
-          comment: 'Clear question, easy to help.',
-          isRevealed: true,
-          revealedAt: reviewTime,
-        },
-      ],
-    });
+  if (!pancakeQuestion) {
+    throw new Error('Pancake question missing from outbox defs');
   }
-
-  console.log('\nComputing user rating aggregates…');
-  const revealedReviews = await prisma.review.findMany({ where: { isRevealed: true } });
-  const aggregateMap: Record<string, Record<RatingRole, { totalStars: number; reviewsCount: number; }>> = {};
-
-  for (const review of revealedReviews) {
-    const role =
-      review.raterRole === ReviewerRole.QUESTIONER ? RatingRole.AS_RESPONDER : RatingRole.AS_QUESTIONER;
-
-    if (!aggregateMap[review.rateeId]) {
-      aggregateMap[review.rateeId] = {
-        [RatingRole.AS_RESPONDER]: { totalStars: 0, reviewsCount: 0 },
-        [RatingRole.AS_QUESTIONER]: { totalStars: 0, reviewsCount: 0 },
-      };
-    }
-
-    aggregateMap[review.rateeId][role].totalStars += review.stars;
-    aggregateMap[review.rateeId][role].reviewsCount += 1;
+  const pancakeQ = await prisma.question.findUnique({ where: { id: pancakeQuestion.id } });
+  if (!pancakeQ) {
+    throw new Error('Pancake question not found after creation');
   }
+  const pancakeResponder = users[7]; // henry_k
+  const pancakePendingResponder = users[8]; // iris_j — pending when question closes
 
-  for (const [userId, roles] of Object.entries(aggregateMap)) {
-    for (const [role, agg] of Object.entries(roles)) {
-      if (agg.reviewsCount === 0) continue;
-      await prisma.userRating.create({
-        data: {
-          userId,
-          role: role as RatingRole,
-          totalStars: agg.totalStars,
-          reviewsCount: agg.reviewsCount,
-        },
-      });
-    }
-  }
+  // 1. henry_k requests to answer.
+  const pancakeRequest = await seedRequestToRespond({
+    question: pancakeQ,
+    responder: pancakeResponder,
+  });
+
+  // 2. iris_j also requests to answer — stays PENDING so closing the question
+  //    will transition it to CLOSED_ANSWERED (mirrors closeQuestion's behaviour).
+  await seedRequestToRespond({
+    question: pancakeQ,
+    responder: pancakePendingResponder,
+  });
+
+  // 3. david_p approves henry_k.
+  await seedAcceptRequest({
+    questionId: pancakeQuestion.id,
+    requestId: pancakeRequest.id,
+    questionerId: test03.id,
+    responder: pancakeResponder,
+  });
+
+  // 4. henry_k sends the answer + david_p replies (real answer exchange).
+  await seedUserMessage({
+    questionId: pancakeQuestion.id,
+    answerRequestId: pancakeRequest.id,
+    senderId: pancakeResponder.id,
+    text: 'Here is my tested recipe: 2 cups flour, 2 eggs, 1.5 cups buttermilk, 1 tsp baking powder. Rest the batter 10 min before cooking at altitude.',
+  });
+  await seedUserMessage({
+    questionId: pancakeQuestion.id,
+    answerRequestId: pancakeRequest.id,
+    senderId: test03.id,
+    text: 'Tried it this morning — came out perfectly fluffy. Thank you!',
+  });
+
+  // 5. david_p closes the question as answered. This sets answeredAt/closedAt,
+  //    transitions iris_j's PENDING request to CLOSED_ANSWERED (with a system
+  //    notice to iris_j), and leaves henry_k's ACCEPTED request untouched.
+  await seedCloseQuestion({ questionId: pancakeQuestion.id, reason: 'Question answered' });
+
+  // 6. Both sides review. Reviews reveal + canonical rating aggregation runs.
+  await seedMutualReview({
+    requestId: pancakeRequest.id,
+    questionerId: test03.id,
+    responderId: pancakeResponder.id,
+    questionerStars: 5,
+    questionerComment: pick(REVIEW_COMMENTS),
+    responderStars: 4,
+    responderComment: 'Clear question, easy to help.',
+  });
+  console.log('   henry_k answered and was reviewed by david_p (and vice versa)');
 
   console.log('\nRefreshing location timestamps for nearby queries…');
   await prisma.$executeRaw`UPDATE locations SET "updatedAt" = NOW()`;
@@ -1278,15 +1386,20 @@ async function seed() {
   console.log('   Home feed (test03): All questions, Incoming, Outgoing');
   console.log('   Feed sort test: search Home for "Sort T" — T1 unread FIFO, T2 nearby no-request,');
   console.log('     T3 far no-request, T4 interacted read, T5 outgoing (newest first within tier)');
-  console.log('   Briefing test: open approved chats, or accept a request on your own question');
+  console.log('   End-to-end happy path: "Best pancake recipe?" — login as test07@quickpeek.com');
+  console.log('     (henry_k / password123) to see the answered + reviewed chat from the responder side.');
+  console.log('   CLOSED_ANSWERED: iris_j (test08@quickpeek.com) has a pending request on the pancake');
+  console.log('     question that was closed into CLOSED_ANSWERED when david_p closed it as answered.');
 }
 
 seed()
   .then(async () => {
     await prisma.$disconnect();
+    await redisClient.quit();
   })
   .catch(async (e) => {
     console.error('Seed failed:', e);
     await prisma.$disconnect();
+    await redisClient.quit();
     process.exit(1);
   });

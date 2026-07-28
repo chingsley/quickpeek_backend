@@ -100,8 +100,11 @@ export type QuestionBriefingInput = {
   acceptanceCriteria: string;
 };
 
-/** Builds ordered briefing texts posted on behalf of the questioner after accept. */
-export const buildAcceptanceBriefingTexts = (question: QuestionBriefingInput): string[] => {
+/**
+ * Builds the ordered question-info texts (location, detail, acceptance criteria)
+ * posted on behalf of the questioner as the opening messages of a request chat.
+ */
+export const buildQuestionBriefingTexts = (question: QuestionBriefingInput): string[] => {
   const texts: string[] = [];
 
   const address = question.address?.trim();
@@ -125,17 +128,18 @@ export const buildAcceptanceBriefingTexts = (question: QuestionBriefingInput): s
 };
 
 /**
- * After a request is accepted, auto-post the question briefing as USER messages
- * from the questioner (location, detail, acceptance criteria).
+ * Posts the question info (location, detail, acceptance criteria) as USER
+ * messages from the questioner. Sent when a request to respond is created, so
+ * both participants see the question context as the first messages in the chat.
  */
-export const createAcceptanceBriefingMessages = async (opts: {
+export const createQuestionBriefingMessages = async (opts: {
   questionId: string;
   answerRequestId: string;
   questionerId: string;
   responderId: string;
   question: QuestionBriefingInput;
 }) => {
-  const texts = buildAcceptanceBriefingTexts(opts.question);
+  const texts = buildQuestionBriefingTexts(opts.question);
   const recipientIds = [opts.questionerId, opts.responderId];
   const messages = [];
 

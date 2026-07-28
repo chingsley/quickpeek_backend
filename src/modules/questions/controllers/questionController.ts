@@ -793,7 +793,7 @@ export const getRejectedResponders = async (req: AuthedRequest, res: Response) =
       return res.status(404).json({ error: 'Question not found' });
     }
     if (question.userId !== userId) {
-      return res.status(403).json({ error: 'Only the questioner can view rejected responders' });
+      return res.status(403).json({ error: 'Only the questioner can view declined responders' });
     }
 
     const blocks = await prisma.questionResponderBlock.findMany({
@@ -833,13 +833,13 @@ export const getRejectedResponders = async (req: AuthedRequest, res: Response) =
     return res.status(200).json({ message: 'Successful', data: { items } });
   } catch (error) {
     console.error('getRejectedResponders error:', error);
-    return res.status(500).json({ error: 'Failed to fetch rejected responders' });
+    return res.status(500).json({ error: 'Failed to fetch declined responders' });
   }
 };
 
 /**
  * DELETE /questions/:id/rejected-responders/:responderId
- * Questioner-only. Unblocks responder and deletes rejected request so they can re-request.
+ * Questioner-only. Unblocks responder and deletes declined request so they can re-request.
  */
 export const unblockResponder = async (req: AuthedRequest, res: Response) => {
   try {
@@ -858,7 +858,7 @@ export const unblockResponder = async (req: AuthedRequest, res: Response) => {
       where: { questionId, responderId, removedAt: null },
     });
     if (!block) {
-      return res.status(404).json({ error: 'Responder is not on the rejected list' });
+      return res.status(404).json({ error: 'Responder is not on the declined list' });
     }
 
     await prisma.$transaction(async (tx) => {

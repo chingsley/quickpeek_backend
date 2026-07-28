@@ -75,7 +75,7 @@ const REVIEW_COMMENTS = [
   'Clear and honest about what they saw.',
 ];
 
-const REJECTION_REASONS = [
+const DECLINE_REASONS = [
   'Question already answered',
   'Already got a response',
   'Prefer someone closer to the specified location',
@@ -201,10 +201,10 @@ async function seedAcceptRequest(opts: {
 }
 
 /**
- * Mirrors `rejectRequest`: AnswerRequest → REJECTED with reason + respondedAt,
+ * Mirrors `rejectRequest` (decline flow): AnswerRequest → REJECTED with reason + respondedAt,
  * QuestionResponderBlock row, and 1 SYSTEM message to the responder only.
  */
-async function seedRejectRequest(opts: {
+async function seedDeclineRequest(opts: {
   questionId: string;
   requestId: string;
   questionerId: string;
@@ -508,9 +508,9 @@ async function seed() {
 
   const drivingPendingResponders = [users[0], users[1], users[2]];
   const drivingAcceptedResponders = [users[4], users[5], users[6]];
-  const drivingRejectedResponders = [users[7], users[8], users[9]];
+  const drivingDeclinedResponders = [users[7], users[8], users[9]];
 
-  console.log('\nSeeding driving-lesson requests (pending / accepted / rejected)…');
+  console.log('\nSeeding driving-lesson requests (pending / accepted / declined)…');
   for (const responder of drivingPendingResponders) {
     await seedRequestToRespond({ question: drivingQ, responder });
   }
@@ -544,10 +544,10 @@ async function seed() {
     });
   }
 
-  for (const responder of drivingRejectedResponders) {
+  for (const responder of drivingDeclinedResponders) {
     const request = await seedRequestToRespond({ question: drivingQ, responder });
-    const reason = pick(REJECTION_REASONS);
-    await seedRejectRequest({
+    const reason = pick(DECLINE_REASONS);
+    await seedDeclineRequest({
       questionId: drivingQuestion.id,
       requestId: request.id,
       questionerId: test03.id,
@@ -632,7 +632,7 @@ async function seed() {
   const nextQuestioner = () => otherUsers[questionerRotator++ % otherUsers.length];
   let feedQuestionIndex = 0;
 
-  type RequestKind = 'pending' | 'approved' | 'answered' | 'rejected';
+  type RequestKind = 'pending' | 'approved' | 'answered' | 'declined';
 
   type FeedQuestionDef = {
     title: string;
@@ -920,14 +920,14 @@ async function seed() {
     },
   ];
 
-  const rejectedDefs: FeedQuestionDef[] = [
+  const declinedDefs: FeedQuestionDef[] = [
     {
       title: 'Gym membership deals nearby?',
       categorySlug: 'services',
       price: 6,
       detail: 'Any current membership promotions at gyms within walking distance?',
       acceptanceCriteria: 'Photo of the promo poster or quoted monthly rate.',
-      request: 'rejected',
+      request: 'declined',
       rejectionReason: 'Prefer someone closer to the specified location',
     },
     {
@@ -936,7 +936,7 @@ async function seed() {
       price: 8,
       detail: 'Looking for a math tutor available for two sessions this week.',
       acceptanceCriteria: 'Tutor contact and confirmed availability.',
-      request: 'rejected',
+      request: 'declined',
       rejectionReason: 'Already got a response',
     },
     {
@@ -945,7 +945,7 @@ async function seed() {
       price: 15,
       detail: 'Need a quote for a one-time deep clean of a 2-bedroom apartment.',
       acceptanceCriteria: 'Written quote or message from a cleaner with availability.',
-      request: 'rejected',
+      request: 'declined',
       rejectionReason: 'Question already answered',
     },
     {
@@ -954,7 +954,7 @@ async function seed() {
       price: 10,
       detail: 'Anyone available to mow a small lawn this weekend?',
       acceptanceCriteria: 'Confirmed availability and price for the job.',
-      request: 'rejected',
+      request: 'declined',
       rejectionReason: 'I no longer need the information',
     },
     {
@@ -963,7 +963,7 @@ async function seed() {
       price: 3,
       detail: 'How long is the wait at the drive-through car wash on Quinpool?',
       acceptanceCriteria: 'Estimated wait time or photo of the queue.',
-      request: 'rejected',
+      request: 'declined',
       rejectionReason: 'Prefer someone closer to the specified location',
     },
     {
@@ -972,7 +972,7 @@ async function seed() {
       price: 20,
       detail: 'Need one person to help move boxes for an hour this Saturday.',
       acceptanceCriteria: 'Confirmed helper with a reachable contact.',
-      request: 'rejected',
+      request: 'declined',
       rejectionReason: 'Already got a response',
     },
   ];
@@ -1032,9 +1032,9 @@ async function seed() {
       return;
     }
 
-    if (def.request === 'rejected') {
-      const reason = def.rejectionReason ?? pick(REJECTION_REASONS);
-      await seedRejectRequest({
+    if (def.request === 'declined') {
+      const reason = def.rejectionReason ?? pick(DECLINE_REASONS);
+      await seedDeclineRequest({
         questionId: q.id,
         requestId: request.id,
         questionerId: questioner.id,
@@ -1098,7 +1098,7 @@ async function seed() {
   for (const def of answeredDefs) {
     await createFeedQuestion(def, true);
   }
-  for (const def of rejectedDefs) {
+  for (const def of declinedDefs) {
     await createFeedQuestion(def, true);
   }
 

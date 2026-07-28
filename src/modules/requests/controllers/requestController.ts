@@ -40,7 +40,7 @@ export const PRESET_REJECTION_REASONS = [
 
 /**
  * GET /requests/rejection-reasons
- * Returns the preset list of rejection reasons shown in the reject modal.
+ * Returns the preset list of decline reasons shown in the decline modal.
  */
 export const getRejectionReasons = async (_req: AuthedRequest, res: Response) => {
   return res.status(200).json({
@@ -399,7 +399,7 @@ export const rejectRequest = async (req: AuthedRequest, res: Response) => {
       return res.status(404).json({ error: 'Request not found' });
     }
     if (request.questionerId !== userId) {
-      return res.status(403).json({ error: 'Only the questioner can reject requests' });
+      return res.status(403).json({ error: 'Only the questioner can decline requests' });
     }
     if (request.status !== AnswerRequestStatus.PENDING) {
       return res.status(409).json({ error: `Request is already ${request.status}` });
@@ -444,7 +444,7 @@ export const rejectRequest = async (req: AuthedRequest, res: Response) => {
     });
 
     return res.status(200).json({
-      message: 'Request rejected',
+      message: 'Request declined',
       data: {
         id: updated.id,
         status: updated.status,
@@ -454,7 +454,7 @@ export const rejectRequest = async (req: AuthedRequest, res: Response) => {
     });
   } catch (error) {
     console.error('rejectRequest error:', error);
-    return res.status(500).json({ error: 'Failed to reject request' });
+    return res.status(500).json({ error: 'Failed to decline request' });
   }
 };
 

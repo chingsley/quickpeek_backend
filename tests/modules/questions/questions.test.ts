@@ -306,7 +306,7 @@ describe('questions', () => {
     let pendingQuestionId: string;
     let approvedQuestionId: string;
     let answeredQuestionId: string;
-    let rejectedQuestionId: string;
+    let declinedQuestionId: string;
     let freshQuestionId: string;
 
     beforeAll(async () => {
@@ -339,7 +339,7 @@ describe('questions', () => {
       const pendingQ = await mk('Pending Section Q');
       const approvedQ = await mk('Approved Section Q');
       const answeredQ = await mk('Answered Section Q');
-      const rejectedQ = await mk('Rejected Section Q');
+      const declinedQ = await mk('Declined Section Q');
       const freshQ = await mk('Fresh Section Q', {
         latitude: 44.6126,
         longitude: -63.6192,
@@ -356,7 +356,7 @@ describe('questions', () => {
       pendingQuestionId = pendingQ.id;
       approvedQuestionId = approvedQ.id;
       answeredQuestionId = answeredQ.id;
-      rejectedQuestionId = rejectedQ.id;
+      declinedQuestionId = declinedQ.id;
       freshQuestionId = freshQ.id;
 
       const pendingReq = await prisma.answerRequest.create({
@@ -385,9 +385,9 @@ describe('questions', () => {
           respondedAt: new Date(),
         },
       });
-      const rejectedReq = await prisma.answerRequest.create({
+      const declinedReq = await prisma.answerRequest.create({
         data: {
-          questionId: rejectedQ.id,
+          questionId: declinedQ.id,
           responderId: viewer.id,
           questionerId: author.id,
           status: 'REJECTED',
@@ -397,9 +397,9 @@ describe('questions', () => {
       });
       await prisma.questionResponderBlock.create({
         data: {
-          questionId: rejectedQ.id,
+          questionId: declinedQ.id,
           responderId: viewer.id,
-          answerRequestId: rejectedReq.id,
+          answerRequestId: declinedReq.id,
           rejectionReason: 'Not a fit',
         },
       });
@@ -437,7 +437,7 @@ describe('questions', () => {
       expect(feedTitles(res)).toContain('Pending Section Q');
       expect(feedTitles(res)).toContain('Approved Section Q');
       expect(feedTitles(res)).toContain('Answered Section Q');
-      expect(feedTitles(res)).toContain('Rejected Section Q');
+      expect(feedTitles(res)).toContain('Declined Section Q');
       expect(feedTitles(res)).toContain('Fresh Section Q');
       expect(feedTitles(res)).toContain('New Section Q');
       expect(res.body.data.counts.incoming).toBeGreaterThan(0);

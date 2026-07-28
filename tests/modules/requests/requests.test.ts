@@ -359,7 +359,7 @@ describe('requests lifecycle', () => {
       await prisma.question.deleteMany({});
       await prisma.answerRequest.deleteMany({});
       await prisma.questionResponderBlock.deleteMany({});
-      const q = await buildQuestion(questioner.id, categoryId, { title: 'Reject test' });
+      const q = await buildQuestion(questioner.id, categoryId, { title: 'Decline test' });
       const r = await prisma.answerRequest.create({
         data: {
           questionId: q.id,
@@ -387,7 +387,7 @@ describe('requests lifecycle', () => {
       expect(res.status).toBe(400);
     });
 
-    it('rejects a PENDING request and posts a reason message to responder only', async () => {
+    it('declines a PENDING request and posts a reason message to responder only', async () => {
       const res = await request(app)
         .post(`/api/v1/requests/${pendingRequestId}/reject`)
         .set('Authorization', `Bearer ${questioner.token}`)
@@ -410,7 +410,7 @@ describe('requests lifecycle', () => {
       expect(block?.rejectionReason).toMatch(/closer/i);
     });
 
-    it('rejects already-rejected requests', async () => {
+    it('declines already-declined requests', async () => {
       const res = await request(app)
         .post(`/api/v1/requests/${pendingRequestId}/reject`)
         .set('Authorization', `Bearer ${questioner.token}`)
@@ -609,7 +609,7 @@ describe('requests lifecycle', () => {
         .send({ rejectionReason: 'Already got a response' });
     });
 
-    it('blocks re-request while on rejected list', async () => {
+    it('blocks re-request while on declined list', async () => {
       const res = await request(app)
         .post(`/api/v1/questions/${questionId}/requests`)
         .set('Authorization', `Bearer ${responder.token}`);
@@ -626,7 +626,7 @@ describe('requests lifecycle', () => {
       expect(res.body.data.viewerRequest.isBlocked).toBe(true);
     });
 
-    it('lists rejected responders for questioner', async () => {
+    it('lists declined responders for questioner', async () => {
       const res = await request(app)
         .get(`/api/v1/questions/${questionId}/rejected-responders`)
         .set('Authorization', `Bearer ${questioner.token}`);

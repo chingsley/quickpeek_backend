@@ -13,7 +13,7 @@ export const loggingMiddleware = (req: Request, res: Response, next: NextFunctio
 
   const { method, url, headers, body } = req;
 
-  logger.info('Request', { method, url, });
+  logger.info('Request', { method, url, headers, body });
 
   const originalSend = res.send;
   res.send = function (body) {

@@ -411,6 +411,7 @@ export const searchQuestions = async (req: AuthedRequest, res: Response) => {
           OR u.name                ILIKE '%' || ${rawQuery} || '%'
           OR u.username            ILIKE '%' || ${rawQuery} || '%'
           OR u.email               ILIKE '%' || ${rawQuery} || '%'
+          )
       )
       SELECT * FROM ranked
       WHERE similarity >= 0.1

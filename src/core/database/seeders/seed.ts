@@ -202,7 +202,7 @@ async function seedAcceptRequest(opts: {
 
 /**
  * Mirrors `rejectRequest` (decline flow): AnswerRequest → REJECTED with reason + respondedAt,
- * QuestionResponderBlock row, and 1 SYSTEM message to the responder only.
+ * QuestionResponderBlock row, and role-specific SYSTEM messages (questioner + responder).
  */
 async function seedDeclineRequest(opts: {
   questionId: string;
@@ -230,6 +230,13 @@ async function seedDeclineRequest(opts: {
     });
   });
 
+  await createSystemMessage({
+    questionId: opts.questionId,
+    answerRequestId: opts.requestId,
+    senderId: opts.questionerId,
+    text: `You declined @${opts.responder.username}'s request`,
+    visibleToUserId: opts.questionerId,
+  });
   await createSystemMessage({
     questionId: opts.questionId,
     answerRequestId: opts.requestId,

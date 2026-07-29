@@ -387,7 +387,7 @@ describe('requests lifecycle', () => {
       expect(res.status).toBe(400);
     });
 
-    it('declines a PENDING request and posts a reason message to responder only', async () => {
+    it('declines a PENDING request and posts role-specific system messages', async () => {
       const res = await request(app)
         .post(`/api/v1/requests/${pendingRequestId}/reject`)
         .set('Authorization', `Bearer ${questioner.token}`)
@@ -397,11 +397,16 @@ describe('requests lifecycle', () => {
       expect(res.body.data.status).toBe('REJECTED');
       expect(res.body.data.rejectionReason).toMatch(/closer/i);
 
-      const sysMsgs = await prisma.message.findMany({
+      const questionerMsgs = await prisma.message.findMany({
+        where: { answerRequestId: pendingRequestId, type: 'SYSTEM', visibleToUserId: questioner.id },
+      });
+      expect(questionerMsgs.some((m) => /declined @/i.test(m.text))).toBe(true);
+
+      const responderMsgs = await prisma.message.findMany({
         where: { answerRequestId: pendingRequestId, type: 'SYSTEM', visibleToUserId: responder.id },
       });
-      expect(sysMsgs.length).toBeGreaterThanOrEqual(1);
-      expect(sysMsgs[0].text).toMatch(/declined/i);
+      expect(responderMsgs.length).toBeGreaterThanOrEqual(1);
+      expect(responderMsgs[0].text).toMatch(/declined/i);
 
       const block = await prisma.questionResponderBlock.findFirst({
         where: { questionId: (await prisma.answerRequest.findUnique({ where: { id: pendingRequestId } }))!.questionId, responderId: responder.id, removedAt: null },

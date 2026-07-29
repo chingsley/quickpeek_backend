@@ -382,7 +382,7 @@ const rejectSchema = Joi.object({
 
 /**
  * POST /requests/:id/reject
- * Questioner-only. PENDING -> REJECTED with reason; system msg with reason to responder only.
+ * Questioner-only. PENDING -> REJECTED with reason; role-specific system msgs.
  */
 export const rejectRequest = async (req: AuthedRequest, res: Response) => {
   try {
@@ -432,11 +432,24 @@ export const rejectRequest = async (req: AuthedRequest, res: Response) => {
       questionId: request.questionId,
       answerRequestId: id,
       senderId: userId,
+      text: `You declined @${request.responder.username}'s request`,
+      visibleToUserId: userId,
+    });
+    await createSystemMessage({
+      questionId: request.questionId,
+      answerRequestId: id,
+      senderId: userId,
       text: `Your request was declined: ${value.rejectionReason}`,
       visibleToUserId: request.responderId,
     });
 
     emitToUser(request.responderId, 'request:rejected', {
+      id,
+      questionId: request.questionId,
+      rejectionReason: value.rejectionReason,
+      rejectedAt: now.toISOString(),
+    });
+    emitToUser(userId, 'request:rejected', {
       id,
       questionId: request.questionId,
       rejectionReason: value.rejectionReason,

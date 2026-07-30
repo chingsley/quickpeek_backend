@@ -6,45 +6,64 @@ import prisma from '../../core/database/prisma/client';
  */
 export const MARKET_CONFIG_KEYS = {
   nearMeRadiusKm: 'nearMeRadiusKm',
+  reviewRevealWindowDays: 'reviewRevealWindowDays',
 } as const;
 
 const DEFAULTS: Record<string, number> = {
   [MARKET_CONFIG_KEYS.nearMeRadiusKm]: 5,
+  [MARKET_CONFIG_KEYS.reviewRevealWindowDays]: 14,
 };
 
 const CACHE_TTL_MS = 60_000;
 
-const cache = new Map<string, { value: number; expiresAt: number; }>();
+const cache = new Map<string, number>();
+let cacheExpiresAt = 0;
+
+const refreshMarketConfigCache = async (): Promise<void> => {
+  try {
+    const rows = await prisma.marketConfig.findMany();
+    cache.clear();
+    for (const row of rows) {
+      cache.set(row.key, row.value);
+    }
+    cacheExpiresAt = Date.now() + CACHE_TTL_MS;
+  } catch (err) {
+    console.error('refreshMarketConfigCache failed', err);
+    cacheExpiresAt = Date.now() + CACHE_TTL_MS;
+  }
+};
 
 /**
  * Read a market config value. Falls back to the default if the row is missing
  * or the DB read fails — never throws so feed/question-detail paths stay
- * resilient. Results are cached for `CACHE_TTL_MS` to keep the hot path cheap.
+ * resilient. All rows are loaded together and cached for `CACHE_TTL_MS`.
  */
 export async function getMarketConfigValue(key: string): Promise<number> {
+  if (cacheExpiresAt <= Date.now()) {
+    await refreshMarketConfigCache();
+  }
+
   const cached = cache.get(key);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.value;
+  if (cached != null && !Number.isNaN(cached)) {
+    return cached;
   }
 
-  let value: number | undefined;
-  try {
-    const row = await prisma.marketConfig.findUnique({ where: { key } });
-    if (row) value = row.value;
-  } catch (err) {
-    console.error(`getMarketConfigValue(${key}) read failed`, err);
+  const fallback = DEFAULTS[key];
+  if (fallback == null || Number.isNaN(fallback)) {
+    console.error(`getMarketConfigValue(${key}) missing default`);
+    return 0;
   }
 
-  if (value == null || Number.isNaN(value)) {
-    value = DEFAULTS[key];
-  }
+  return fallback;
+}
 
-  cache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
-  return value;
+/** Days after review unlock before the submission/reveal window closes. */
+export async function getReviewRevealWindowDays(): Promise<number> {
+  return getMarketConfigValue(MARKET_CONFIG_KEYS.reviewRevealWindowDays);
 }
 
 /**
- * Update a config value. Invalidates the cache so the next read picks it up.
+ * Update a config value. Invalidates the cache so the next read reloads all rows.
  */
 export async function setMarketConfigValue(key: string, value: number): Promise<void> {
   await prisma.marketConfig.upsert({
@@ -52,5 +71,6 @@ export async function setMarketConfigValue(key: string, value: number): Promise<
     update: { value },
     create: { key, value },
   });
-  cache.delete(key);
+  cache.clear();
+  cacheExpiresAt = 0;
 }

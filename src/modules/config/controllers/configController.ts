@@ -7,6 +7,7 @@ import {
 
 export type MarketConfigResponse = {
   nearMeRadiusKm: number;
+  reviewRevealWindowDays: number;
 };
 
 /**
@@ -17,7 +18,8 @@ export type MarketConfigResponse = {
 export const getMarketConfig = async (_req: Request, res: Response) => {
   try {
     const nearMeRadiusKm = await getMarketConfigValue(MARKET_CONFIG_KEYS.nearMeRadiusKm);
-    const data: MarketConfigResponse = { nearMeRadiusKm };
+    const reviewRevealWindowDays = await getMarketConfigValue(MARKET_CONFIG_KEYS.reviewRevealWindowDays);
+    const data: MarketConfigResponse = { nearMeRadiusKm, reviewRevealWindowDays };
     return res.status(200).json({ message: 'Successful', data });
   } catch (error) {
     console.error('getMarketConfig error:', error);
@@ -25,7 +27,7 @@ export const getMarketConfig = async (_req: Request, res: Response) => {
   }
 };
 
-type UpdateBody = { nearMeRadiusKm?: number; };
+type UpdateBody = { nearMeRadiusKm?: number; reviewRevealWindowDays?: number; };
 
 /**
  * PUT /config
@@ -33,14 +35,18 @@ type UpdateBody = { nearMeRadiusKm?: number; };
  */
 export const updateMarketConfig = async (req: Request, res: Response) => {
   try {
-    const { nearMeRadiusKm } = req.body as UpdateBody;
+    const { nearMeRadiusKm, reviewRevealWindowDays } = req.body as UpdateBody;
 
     if (nearMeRadiusKm != null) {
       await setMarketConfigValue(MARKET_CONFIG_KEYS.nearMeRadiusKm, nearMeRadiusKm);
     }
+    if (reviewRevealWindowDays != null) {
+      await setMarketConfigValue(MARKET_CONFIG_KEYS.reviewRevealWindowDays, reviewRevealWindowDays);
+    }
 
     const data: MarketConfigResponse = {
       nearMeRadiusKm: await getMarketConfigValue(MARKET_CONFIG_KEYS.nearMeRadiusKm),
+      reviewRevealWindowDays: await getMarketConfigValue(MARKET_CONFIG_KEYS.reviewRevealWindowDays),
     };
     return res.status(200).json({ message: 'Config updated', data });
   } catch (error) {

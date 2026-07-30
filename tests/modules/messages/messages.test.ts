@@ -178,6 +178,94 @@ describe('messages (request-scoped chat)', () => {
         .send({ text: 'Hi' });
       expect(res.status).toBe(403);
     });
+
+    it('sends a reply with the quoted message brief', async () => {
+      const { answerRequest, q, r } = await setupScenario(AnswerRequestStatus.ACCEPTED);
+      const original = await prisma.message.create({
+        data: {
+          questionId: answerRequest.questionId,
+          answerRequestId: answerRequest.id,
+          senderId: r.id,
+          text: 'Original message',
+        },
+      });
+
+      const res = await request(app)
+        .post(`/api/v1/requests/${answerRequest.id}/messages`)
+        .set('Authorization', `Bearer ${q.token}`)
+        .send({ text: 'This is a reply', replyToId: original.id });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.replyTo).toEqual({
+        id: original.id,
+        senderId: r.id,
+        text: 'Original message',
+      });
+
+      // Persisted and returned on fetch
+      const fetch = await request(app)
+        .get(`/api/v1/requests/${answerRequest.id}/messages`)
+        .set('Authorization', `Bearer ${r.token}`);
+      const fetched = fetch.body.data.find((m: any) => m.id === res.body.data.id);
+      expect(fetched.replyTo?.id).toBe(original.id);
+    });
+
+    it('rejects a replyToId from another conversation', async () => {
+      const { answerRequest, q, r } = await setupScenario(AnswerRequestStatus.ACCEPTED);
+      // A second conversation between the same users (needs its own question:
+      // requests are unique per question+responder)
+      const otherQuestion = await prisma.question.create({
+        data: {
+          title: 'Other chat',
+          detail: 'Other detail',
+          categoryId: (await prisma.category.findFirstOrThrow({ where: { slug: 'location' } })).id,
+          price: 5,
+          acceptanceCriteria: 'criteria',
+          userId: q.id,
+        },
+      });
+      const otherRequest = await prisma.answerRequest.create({
+        data: {
+          questionId: otherQuestion.id,
+          responderId: r.id,
+          questionerId: q.id,
+          status: AnswerRequestStatus.ACCEPTED,
+        },
+      });
+      const foreign = await prisma.message.create({
+        data: {
+          questionId: otherQuestion.id,
+          answerRequestId: otherRequest.id,
+          senderId: q.id,
+          text: 'Not from this conversation',
+        },
+      });
+
+      const res = await request(app)
+        .post(`/api/v1/requests/${answerRequest.id}/messages`)
+        .set('Authorization', `Bearer ${q.token}`)
+        .send({ text: 'Reply', replyToId: foreign.id });
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects a replyToId pointing at a SYSTEM message', async () => {
+      const { answerRequest, q, r } = await setupScenario(AnswerRequestStatus.ACCEPTED);
+      const system = await prisma.message.create({
+        data: {
+          questionId: answerRequest.questionId,
+          answerRequestId: answerRequest.id,
+          senderId: r.id,
+          text: 'System note',
+          type: MessageType.SYSTEM,
+        },
+      });
+
+      const res = await request(app)
+        .post(`/api/v1/requests/${answerRequest.id}/messages`)
+        .set('Authorization', `Bearer ${q.token}`)
+        .send({ text: 'Reply', replyToId: system.id });
+      expect(res.status).toBe(400);
+    });
   });
 
   describe('POST /api/v1/requests/:id/messages/read', () => {

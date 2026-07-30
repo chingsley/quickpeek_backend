@@ -8,6 +8,7 @@ import Joi from 'joi';
 export const validateMarketConfigUpdate = (req: Request, res: Response, next: NextFunction) => {
   const schema = Joi.object({
     nearMeRadiusKm: Joi.number().min(0.1).max(500).optional(),
+    reviewRevealWindowDays: Joi.number().integer().min(1).max(90).optional(),
   }).min(1);
 
   const { error, value } = schema.validate(req.body);

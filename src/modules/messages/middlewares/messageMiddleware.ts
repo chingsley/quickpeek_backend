@@ -4,6 +4,7 @@ import { Request, Response, NextFunction } from 'express';
 export const validateSendMessage = (req: Request, res: Response, next: NextFunction) => {
   const schema = Joi.object({
     text: Joi.string().trim().min(1).max(2000).required(),
+    replyToId: Joi.string().uuid().optional(),
   });
   const { error } = schema.validate(req.body);
   if (error) {

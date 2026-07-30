@@ -1,6 +1,7 @@
 {
   "logger": {
     "type": "console",
-    "enabled": true
+    "enabled": true,
+    "logRequestBody": false
   }
 }

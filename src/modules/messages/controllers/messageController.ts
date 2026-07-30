@@ -71,6 +71,9 @@ export const getMessages = async (req: AuthedRequest, res: Response) => {
         answerRequestId: requestId,
         OR: [{ visibleToUserId: null }, { visibleToUserId: userId }],
       },
+      include: {
+        replyTo: { select: { id: true, senderId: true, text: true } },
+      },
       orderBy: { createdAt: 'asc' },
     });
 
@@ -92,7 +95,7 @@ export const sendMessage = async (req: AuthedRequest, res: Response) => {
   try {
     const { id: requestId } = req.params;
     const userId = req.user!.userId;
-    const { text } = req.body;
+    const { text, replyToId } = req.body;
 
     const request = await getRequest(requestId);
     const guard = assertParticipant(request, userId);
@@ -106,16 +109,35 @@ export const sendMessage = async (req: AuthedRequest, res: Response) => {
       });
     }
 
+    // A reply target must be a USER message in the same conversation — those
+    // are always visible to both participants, so the quote never leaks a
+    // system message the other side can't see.
+    let replyTo: { id: string; senderId: string; text: string } | null = null;
+    if (replyToId) {
+      replyTo = await prisma.message.findFirst({
+        where: {
+          id: replyToId,
+          answerRequestId: requestId,
+          type: MessageType.USER,
+        },
+        select: { id: true, senderId: true, text: true },
+      });
+      if (!replyTo) {
+        return res.status(400).json({ error: 'Invalid replyToId' });
+      }
+    }
+
     const message = await prisma.message.create({
       data: {
         questionId: request!.questionId,
         answerRequestId: requestId,
         senderId: userId,
         text: text.trim(),
+        replyToId: replyTo?.id ?? null,
       },
     });
 
-    const payload = formatMessagePayload(message);
+    const payload = formatMessagePayload({ ...message, replyTo });
     const recipientId = counterpartyIdOf(request!, userId);
     emitToUser(recipientId, 'message:new', payload);
 

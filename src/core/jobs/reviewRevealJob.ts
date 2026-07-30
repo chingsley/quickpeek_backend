@@ -1,10 +1,12 @@
 import { Job } from 'bull';
 import prisma from '../database/prisma/client';
-import { revealReviewsForRequest, REVIEW_REVEAL_WINDOW_DAYS } from '../../common/utils/reviews.utils';
+import { revealReviewsForRequest } from '../../common/utils/reviews.utils';
+import { getReviewRevealWindowDays } from '../../modules/config/configService';
 
 const processReviewReveal = async (_job: Job) => {
   try {
-    const cutoff = new Date(Date.now() - REVIEW_REVEAL_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    const windowDays = await getReviewRevealWindowDays();
+    const cutoff = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000);
 
     const staleReviews = await prisma.review.findMany({
       where: {

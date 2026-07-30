@@ -121,6 +121,49 @@ describe('reviews (request-scoped, double-blind)', () => {
       expect(res.body.data.canReview).toBe(false);
     });
 
+    it('returns review window metadata when unlocked', async () => {
+      const { answerRequest, q, question } = await buildRequestScenario({
+        requestStatus: AnswerRequestStatus.ACCEPTED,
+        markedAnswered: true,
+      });
+      const res = await request(app)
+        .get(`/api/v1/requests/${answerRequest.id}/review-eligibility`)
+        .set('Authorization', `Bearer ${q.token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.reviewWindowOpen).toBe(true);
+      expect(res.body.data.reviewWindowEnded).toBe(false);
+      expect(res.body.data.reviewWindowDays).toBe(14);
+      expect(res.body.data.reviewWindowEndsAt).toBeTruthy();
+
+      const answeredAt = new Date(question.answeredAt!);
+      const expectedEndsAt = new Date(answeredAt);
+      expectedEndsAt.setDate(expectedEndsAt.getDate() + 14);
+      expect(new Date(res.body.data.reviewWindowEndsAt).getTime()).toBe(expectedEndsAt.getTime());
+    });
+
+    it('closes the review window after REVIEW_REVEAL_WINDOW_DAYS', async () => {
+      const { answerRequest, q, question } = await buildRequestScenario({
+        requestStatus: AnswerRequestStatus.ACCEPTED,
+        markedAnswered: true,
+      });
+      const staleAnsweredAt = new Date();
+      staleAnsweredAt.setDate(staleAnsweredAt.getDate() - 15);
+      await prisma.question.update({
+        where: { id: question.id },
+        data: { answeredAt: staleAnsweredAt, closedAt: staleAnsweredAt },
+      });
+
+      const res = await request(app)
+        .get(`/api/v1/requests/${answerRequest.id}/review-eligibility`)
+        .set('Authorization', `Bearer ${q.token}`);
+
+      expect(res.body.data.unlocked).toBe(true);
+      expect(res.body.data.reviewWindowOpen).toBe(false);
+      expect(res.body.data.reviewWindowEnded).toBe(true);
+      expect(res.body.data.canReview).toBe(false);
+    });
+
     it('rejects non-participants', async () => {
       const { answerRequest, outsider } = await buildRequestScenario();
       const res = await request(app)
@@ -212,6 +255,26 @@ describe('reviews (request-scoped, double-blind)', () => {
         .set('Authorization', `Bearer ${q.token}`)
         .send({ stars: 5 });
       expect(res.status).toBe(409);
+    });
+
+    it('rejects reviewing when the review window has ended', async () => {
+      const { answerRequest, q, question } = await buildRequestScenario({
+        requestStatus: AnswerRequestStatus.ACCEPTED,
+        markedAnswered: true,
+      });
+      const staleAnsweredAt = new Date();
+      staleAnsweredAt.setDate(staleAnsweredAt.getDate() - 15);
+      await prisma.question.update({
+        where: { id: question.id },
+        data: { answeredAt: staleAnsweredAt, closedAt: staleAnsweredAt },
+      });
+
+      const res = await request(app)
+        .post(`/api/v1/requests/${answerRequest.id}/reviews`)
+        .set('Authorization', `Bearer ${q.token}`)
+        .send({ stars: 5 });
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe('The review window has ended');
     });
 
     it('rejects invalid star values', async () => {

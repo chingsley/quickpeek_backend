@@ -2,6 +2,12 @@ import { MessageType } from '@prisma/client';
 import prisma from '../../core/database/prisma/client';
 import { emitToUser } from '../../core/socket/socket.server';
 
+export type MessageReplyBrief = {
+  id: string;
+  senderId: string;
+  text: string;
+};
+
 export type MessagePayloadInput = {
   id: string;
   questionId: string;
@@ -12,6 +18,7 @@ export type MessagePayloadInput = {
   visibleToUserId: string | null;
   createdAt: Date;
   readAt: Date | null;
+  replyTo?: MessageReplyBrief | null;
 };
 
 export const formatMessagePayload = (message: MessagePayloadInput) => ({
@@ -24,6 +31,13 @@ export const formatMessagePayload = (message: MessagePayloadInput) => ({
   visibleToUserId: message.visibleToUserId,
   createdAt: message.createdAt.toISOString(),
   readAt: message.readAt?.toISOString() ?? null,
+  replyTo: message.replyTo
+    ? {
+        id: message.replyTo.id,
+        senderId: message.replyTo.senderId,
+        text: message.replyTo.text,
+      }
+    : null,
 });
 
 /**

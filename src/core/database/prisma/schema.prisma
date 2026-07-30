@@ -167,12 +167,15 @@ model Message {
   text           String
   type           MessageType @default(USER)
   visibleToUserId String?
+  replyToId      String?
   createdAt      DateTime    @default(now())
   readAt         DateTime?
 
   question      Question      @relation(fields: [questionId], references: [id], onDelete: Cascade)
   answerRequest AnswerRequest @relation(fields: [answerRequestId], references: [id], onDelete: Cascade)
   sender        User          @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  replyTo       Message?      @relation("MessageReplies", fields: [replyToId], references: [id])
+  replies       Message[]     @relation("MessageReplies")
 
   @@index([questionId])
   @@index([answerRequestId])
@@ -229,7 +232,7 @@ model UserRating {
 
 /// Single-row table of tunable, market-wide runtime config.
 /// Rows are keyed by `key` so future settings can be added without a migration
-/// for each one. Today only `nearMeRadiusKm` is consumed.
+/// for each one. Keys include `nearMeRadiusKm` and `reviewRevealWindowDays`.
 model MarketConfig {
   key   String @id
   value Float

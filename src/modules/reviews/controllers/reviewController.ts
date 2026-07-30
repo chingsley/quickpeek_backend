@@ -3,9 +3,12 @@ import { Request, Response } from 'express';
 import prisma from '../../../core/database/prisma/client';
 import {
   getReviewUnlockReason,
+  getReviewWindowEndsAt,
   isReviewUnlocked,
+  isReviewWindowOpen,
   tryRevealMutualReviews,
 } from '../../../common/utils/reviews.utils';
+import { getReviewRevealWindowDays } from '../../config/configService';
 
 type AuthedRequest = Request & { user?: { userId: string } };
 
@@ -50,6 +53,9 @@ export const getReviewEligibility = async (req: AuthedRequest, res: Response) =>
 
     const unlockedReason = await getReviewUnlockReason(request!);
     const unlocked = unlockedReason !== null;
+    const reviewWindowEndsAt = unlocked ? await getReviewWindowEndsAt(request!) : null;
+    const reviewWindowOpen = unlocked ? await isReviewWindowOpen(request!) : false;
+    const reviewWindowDays = await getReviewRevealWindowDays();
 
     const existingReview = await prisma.review.findUnique({
       where: { answerRequestId_raterId: { answerRequestId: requestId, raterId: userId } },
@@ -58,12 +64,16 @@ export const getReviewEligibility = async (req: AuthedRequest, res: Response) =>
     return res.status(200).json({
       message: 'Successful',
       data: {
-        canReview: unlocked && !existingReview,
+        canReview: unlocked && reviewWindowOpen && !existingReview,
         alreadyReviewed: !!existingReview,
         reviewSubmitted: !!existingReview,
         reviewRevealed: existingReview?.isRevealed ?? false,
         unlockedReason,
         unlocked,
+        reviewWindowOpen,
+        reviewWindowEnded: unlocked && !reviewWindowOpen,
+        reviewWindowEndsAt: reviewWindowEndsAt?.toISOString() ?? null,
+        reviewWindowDays,
       },
     });
   } catch (error) {
@@ -91,6 +101,10 @@ export const submitReview = async (req: AuthedRequest, res: Response) => {
 
     if (!(await isReviewUnlocked(request!))) {
       return res.status(409).json({ error: 'Reviews are not unlocked for this request yet' });
+    }
+
+    if (!(await isReviewWindowOpen(request!))) {
+      return res.status(409).json({ error: 'The review window has ended' });
     }
 
     const isQuestioner = request!.questionerId === userId;

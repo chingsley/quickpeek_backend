@@ -1387,6 +1387,11 @@ async function seed() {
     update: {},
     create: { key: 'nearMeRadiusKm', value: 5 },
   });
+  await prisma.marketConfig.upsert({
+    where: { key: 'reviewRevealWindowDays' },
+    update: {},
+    create: { key: 'reviewRevealWindowDays', value: 14 },
+  });
 
   console.log('\n✅ Seed complete!');
   console.log(`   Login: ${test03.email} / password: password123`);

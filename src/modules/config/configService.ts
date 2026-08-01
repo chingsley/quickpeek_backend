@@ -7,11 +7,13 @@ import prisma from '../../core/database/prisma/client';
 export const MARKET_CONFIG_KEYS = {
   nearMeRadiusKm: 'nearMeRadiusKm',
   reviewRevealWindowDays: 'reviewRevealWindowDays',
+  platformFeePercent: 'platformFeePercent',
 } as const;
 
 const DEFAULTS: Record<string, number> = {
   [MARKET_CONFIG_KEYS.nearMeRadiusKm]: 5,
   [MARKET_CONFIG_KEYS.reviewRevealWindowDays]: 14,
+  [MARKET_CONFIG_KEYS.platformFeePercent]: 0,
 };
 
 const CACHE_TTL_MS = 60_000;
@@ -60,6 +62,11 @@ export async function getMarketConfigValue(key: string): Promise<number> {
 /** Days after review unlock before the submission/reveal window closes. */
 export async function getReviewRevealWindowDays(): Promise<number> {
   return getMarketConfigValue(MARKET_CONFIG_KEYS.reviewRevealWindowDays);
+}
+
+/** Platform commission on question payments, in percent (0–100). */
+export async function getPlatformFeePercent(): Promise<number> {
+  return getMarketConfigValue(MARKET_CONFIG_KEYS.platformFeePercent);
 }
 
 /**

@@ -17,6 +17,7 @@ const REQUEST_PARTICIPANTS_SELECT = {
       id: true,
       title: true,
       detail: true,
+      price: true,
       userId: true,
       status: true,
       latitude: true,
@@ -25,6 +26,7 @@ const REQUEST_PARTICIPANTS_SELECT = {
       category: { select: { id: true, name: true, slug: true } },
     },
   },
+  transaction: { select: { status: true } },
 } as const;
 
 const getRequest = async (requestId: string) =>
@@ -196,15 +198,22 @@ export const getRequestThread = async (req: AuthedRequest, res: Response) => {
     }
 
     const counterpartyId = counterpartyIdOf(request!, userId);
-    const counterparty = await prisma.user.findUnique({
-      where: { id: counterpartyId },
-      select: {
-        id: true,
-        name: true,
-        username: true,
-        profileImageUrl: true,
-      },
-    });
+    const [counterparty, payoutAccount] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: counterpartyId },
+        select: {
+          id: true,
+          name: true,
+          username: true,
+          profileImageUrl: true,
+        },
+      }),
+      // The responder's payout currency is what a payment would be charged in.
+      prisma.paymentAccount.findUnique({
+        where: { userId: request!.responderId },
+        select: { currency: true },
+      }),
+    ]);
 
     const q = request!.question;
     return res.status(200).json({
@@ -219,12 +228,15 @@ export const getRequestThread = async (req: AuthedRequest, res: Response) => {
           id: q.id,
           title: q.title,
           detail: q.detail,
+          price: q.price,
           status: q.status,
           latitude: q.latitude,
           longitude: q.longitude,
           address: q.address,
           category: q.category,
         },
+        payment: request!.transaction ? { status: request!.transaction.status } : null,
+        payoutCurrency: payoutAccount?.currency ?? null,
         counterparty,
       },
     });

@@ -10,11 +10,12 @@ export const clearDatabase = async (client: PrismaClient = prisma) => {
   await client.message.deleteMany({});
   await client.review.deleteMany({});
   await client.questionResponderBlock.deleteMany({});
+  await client.transaction.deleteMany({});
   await client.answerRequest.deleteMany({});
   await client.question.deleteMany({});
   await client.category.deleteMany({});
   await client.userRating.deleteMany({});
-  await client.transaction.deleteMany({});
+  await client.paymentAccount.deleteMany({});
   await client.location.deleteMany({});
   await client.user.deleteMany({});
 };

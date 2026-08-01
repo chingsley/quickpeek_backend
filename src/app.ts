@@ -9,6 +9,8 @@ import requestRoutes from './modules/requests/routes/requestRoutes';
 import healthRoutes from './api/routes/healthRoute';
 import userRoutes from './modules/users/routes/userRoutes';
 import configRoutes from './modules/config/routes/configRoutes';
+import paymentRoutes from './modules/payments/routes/paymentRoutes';
+import paymentWebhookRoutes from './modules/payments/routes/paymentWebhookRoutes';
 
 const app = express();
 
@@ -18,6 +20,14 @@ app.set('etag', false);
 // Required when requests arrive via a proxy (e.g. Expo tunnel) so
 // express-rate-limit can safely read X-Forwarded-For.
 app.set('trust proxy', 1);
+
+// Stripe/Paystack webhooks must see the raw payload for signature
+// verification, so this router mounts before the global JSON parser.
+app.use(
+  '/api/v1/payments/webhooks',
+  express.raw({ type: 'application/json' }),
+  paymentWebhookRoutes,
+);
 
 app.use(express.json());
 app.use(cors());
@@ -34,6 +44,7 @@ app.use('/api/v1/questions', questionRoutes);
 app.use('/api/v1/categories', categoryRoutes);
 app.use('/api/v1/requests', requestRoutes);
 app.use('/api/v1/users', userRoutes);
+app.use('/api/v1/payments', paymentRoutes);
 app.use((error: Error, req: Request, res: Response, next: NextFunction) => {
   if (error) {
     if (typeof error === 'object') {

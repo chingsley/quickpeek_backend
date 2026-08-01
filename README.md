@@ -16,10 +16,32 @@ QuickPeek is a location-based service that allows users to check the availabilit
 
 - **Real-time Information:** Users can ask and respond to questions about the current state of vendors (availability, queue length, open/closed status).
 - **Rewards for Responders:** Users who provide timely and accurate answers receive rewards.
+- **Payments & Wallet:** Questioners pay responders per accepted answer directly from the chat (card via Stripe PaymentSheet, or Paystack checkout in West Africa). Responders onboard payout accounts (Stripe Express / Paystack subaccount) and track earnings, spend, and per-question transactions on the wallet screen.
 - **Push Notifications:** Location-based notifications alert users when there's relevant activity near them.
 - **User Ratings:** Question Creators can rate the quality of responses they receive, helping to maintain the integrity of information.
 
 ---
+
+## Payments
+
+The `payments` module (`src/modules/payments/`) implements per-question
+payments through a provider-strategy layer (`providers/`): **Stripe Connect**
+(destination charges, default) and **Paystack** (subaccounts, for
+NGN/GHS/ZAR/KES accounts). Key properties:
+
+- Questioner initiates from chat (`POST /payments/pay`), confirms with the
+  provider's UI; the backend never sees card data.
+- Finalization is **webhook-driven** (`/payments/webhooks/stripe|paystack`,
+  raw-body signature verification) with the client's
+  `POST /payments/pay/verify` as fallback. Both paths funnel into one
+  idempotent finalizer that emits socket events (`payment:received`,
+  `payment:succeeded`, `payment:failed`) and posts a chat system message.
+- One transaction per answer request (`answerRequestId` unique); retries
+  reset the PENDING row; Stripe charges use the request id as the
+  idempotency key.
+- Platform commission is the `platformFeePercent` market config (default 0).
+- The module is held to **100% test coverage** (statements/branches/
+  functions/lines) via `jest.config.js` thresholds.
 
 ## System Architecture
 
@@ -81,13 +103,23 @@ Ensure the following software is installed on your machine:
 
 3. **Set up Environment Variables:**
 
-   Create a `.env` file in the project root and add the following variables:
+   Copy `.env.example` to `.env` and fill in the values (the example file
+   documents every variable and where to obtain it):
+
+   ```bash
+   cp .env.example .env
+   ```
+
+   The minimum for a bare dev run:
 
    ```
    DATABASE_URL=postgresql://username:password@localhost:5432/quickpeek_db
    JWT_SECRET=your_secret_key
    REDIS_URL=redis://localhost:6379
    ```
+
+   For payments, also set the Stripe and/or Paystack keys — `.env.example`
+   explains how to get each one (both providers have free test modes).
 
    Be sure to create a db with the name: `quickpeek_db`
 

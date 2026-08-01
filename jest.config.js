@@ -23,5 +23,12 @@ module.exports = {
       functions: 80,
       lines: 80,
     },
+    // The payments feature is held to full coverage (money movement).
+    './src/modules/payments/**/*.ts': {
+      statements: 100,
+      branches: 100,
+      functions: 100,
+      lines: 100,
+    },
   },
 };

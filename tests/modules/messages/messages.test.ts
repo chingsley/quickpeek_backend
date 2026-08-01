@@ -321,7 +321,54 @@ describe('messages (request-scoped chat)', () => {
       expect(res.status).toBe(200);
       expect(res.body.data.canType).toBe(true);
       expect(res.body.data.question.title).toBe('Chat test');
+      expect(res.body.data.question.price).toBe(5);
+      expect(res.body.data.payment).toBeNull();
+      expect(res.body.data.payoutCurrency).toBeNull();
       expect(res.body.data.counterparty).toHaveProperty('username');
+    });
+
+    it('exposes the payment status when a transaction exists', async () => {
+      const { question, answerRequest, q, r } = await setupScenario(AnswerRequestStatus.ACCEPTED);
+      await prisma.transaction.create({
+        data: {
+          provider: 'STRIPE',
+          type: 'QUESTION_PAYMENT',
+          status: 'SUCCEEDED',
+          amount: 5,
+          currency: 'USD',
+          payerId: q.id,
+          payeeId: r.id,
+          questionId: question.id,
+          answerRequestId: answerRequest.id,
+          providerRef: 'pi_thread',
+        },
+      });
+      const res = await request(app)
+        .get(`/api/v1/requests/${answerRequest.id}/messages/thread`)
+        .set('Authorization', `Bearer ${q.token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.payment).toEqual({ status: 'SUCCEEDED' });
+    });
+
+    it('exposes the responder payout currency when a payment account exists', async () => {
+      const { answerRequest, q, r } = await setupScenario(AnswerRequestStatus.ACCEPTED);
+      await prisma.paymentAccount.create({
+        data: {
+          userId: r.id,
+          provider: 'PAYSTACK',
+          currency: 'NGN',
+          status: 'ACTIVE',
+          payoutsEnabled: true,
+          connectedAccountId: 'ACCT_thread',
+        },
+      });
+      const res = await request(app)
+        .get(`/api/v1/requests/${answerRequest.id}/messages/thread`)
+        .set('Authorization', `Bearer ${q.token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.payoutCurrency).toBe('NGN');
     });
 
     it('reports canType=false when request is PENDING', async () => {

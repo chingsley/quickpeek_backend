@@ -32,7 +32,9 @@ model User {
   requestsMade     AnswerRequest[] @relation("RequestsByResponder")
   requestsReceived AnswerRequest[] @relation("RequestsForQuestioner")
   responderBlocks  QuestionResponderBlock[] @relation("ResponderBlocks")
-  transactions     Transaction[]
+  paymentAccount   PaymentAccount?
+  paymentsMade     Transaction[]  @relation("PaymentsMade")
+  paymentsReceived Transaction[]  @relation("PaymentsReceived")
 
   @@map("users")
 }
@@ -112,6 +114,7 @@ model Question {
   messages         Message[]
   requests         AnswerRequest[]
   responderBlocks  QuestionResponderBlock[]
+  transactions     Transaction[]
 
   @@index([categoryId])
   @@index([status])
@@ -134,6 +137,7 @@ model AnswerRequest {
   messages   Message[]
   reviews    Review[]
   block      QuestionResponderBlock?
+  transaction Transaction?
 
   @@unique([questionId, responderId])
   @@index([questionerId, status])
@@ -203,15 +207,76 @@ model Review {
   @@map("reviews")
 }
 
-model Transaction {
-  id        String   @id @default(uuid())
-  amount    Float
-  userId    String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+enum PaymentProvider {
+  STRIPE
+  PAYSTACK
+}
+
+enum PaymentAccountStatus {
+  PENDING
+  ONBOARDING
+  ACTIVE
+}
+
+enum TransactionType {
+  QUESTION_PAYMENT
+}
+
+enum TransactionStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+/// Per-user payment identity with a provider. `customerId` identifies the
+/// user as a payer (saved cards); `connectedAccountId` identifies them as a
+/// payee (Stripe Connect account / Paystack subaccount) once payout
+/// onboarding is complete. The provider is chosen from `currency`.
+model PaymentAccount {
+  id                 String               @id @default(uuid())
+  userId             String               @unique
+  provider           PaymentProvider
+  currency           String
+  customerId         String?
+  connectedAccountId String?
+  status             PaymentAccountStatus @default(PENDING)
+  payoutsEnabled     Boolean              @default(false)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@map("payment_accounts")
+}
+
+/// Ledger of money movements. A QUESTION_PAYMENT row is created PENDING when
+/// the questioner initiates payment and finalized SUCCEEDED/FAILED by the
+/// provider webhook (or the client verify fallback). `providerRef` is unique
+/// so webhook retries are idempotent.
+model Transaction {
+  id              String            @id @default(uuid())
+  provider        PaymentProvider
+  type            TransactionType
+  status          TransactionStatus @default(PENDING)
+  amount          Float
+  currency        String
+  platformFee     Float             @default(0)
+  payerId         String
+  payeeId         String
+  questionId      String?
+  answerRequestId String?           @unique
+  providerRef     String?           @unique
+  failureReason   String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  payer         User           @relation("PaymentsMade", fields: [payerId], references: [id], onDelete: Cascade)
+  payee         User           @relation("PaymentsReceived", fields: [payeeId], references: [id], onDelete: Cascade)
+  question      Question?      @relation(fields: [questionId], references: [id], onDelete: SetNull)
+  answerRequest AnswerRequest? @relation(fields: [answerRequestId], references: [id], onDelete: SetNull)
+
+  @@index([payerId, status])
+  @@index([payeeId, status])
   @@map("transactions")
 }
 

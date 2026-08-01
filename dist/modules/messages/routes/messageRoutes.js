@@ -1,0 +1,12 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const authMiddleware_1 = require("../../../api/middlewares/authMiddleware");
+const messageController_1 = require("../controllers/messageController");
+const messageMiddleware_1 = require("../middlewares/messageMiddleware");
+const router = (0, express_1.Router)({ mergeParams: true });
+router.get('/thread', authMiddleware_1.authenticateToken, messageController_1.getRequestThread);
+router.get('/', authMiddleware_1.authenticateToken, messageController_1.getMessages);
+router.post('/', authMiddleware_1.authenticateToken, messageMiddleware_1.validateSendMessage, messageController_1.sendMessage);
+router.post('/read', authMiddleware_1.authenticateToken, messageController_1.markMessagesRead);
+exports.default = router;

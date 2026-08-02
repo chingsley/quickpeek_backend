@@ -29,6 +29,57 @@ const parsePagination = (query: Request['query']) => {
 };
 
 /**
+ * Stripe validates AccountLink URLs strictly (scheme required). Tolerate an
+ * empty or scheme-less FRONTEND_URL so a misconfigured dev env can't 500.
+ */
+const resolveOnboardingBaseUrl = (): string => {
+  const raw = (process.env.FRONTEND_URL ?? '').trim();
+  if (!raw) return 'http://localhost:8081';
+  return /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+};
+
+/**
+ * Stripe only accepts http(s) AccountLink URLs, so app deep links can't be
+ * used directly. Instead Stripe redirects to this backend-hosted page, which
+ * hands off into the app via the deep link (see onboardingReturnPage).
+ */
+export const ONBOARDING_RETURN_PATH = '/api/v1/payments/onboarding/return';
+
+/**
+ * Public URL of this API as seen by the caller — the same base the phone
+ * used for this request is guaranteed reachable from its browser.
+ */
+const buildApiBaseUrl = (req: Request): string => {
+  const proto = req.header('x-forwarded-proto') ?? req.protocol;
+  const host = req.header('x-forwarded-host') ?? req.header('host') ?? 'localhost:3000';
+  return `${proto}://${host}`;
+};
+
+/**
+ * Turns the app's deep link into an https URL Stripe accepts, pointing at the
+ * return page with the deep link as its handoff target. Hostless/unparsable
+ * client URLs fall back to the server-built page URL (and are logged).
+ * Exported for direct unit tests; the HTTP path is covered end-to-end.
+ */
+export const buildOnboardingRedirectUrl = (
+  req: Request,
+  clientUrl: string | undefined,
+  fallback: string,
+): string => {
+  if (clientUrl) {
+    try {
+      if (new URL(clientUrl).host) {
+        return `${buildApiBaseUrl(req)}${ONBOARDING_RETURN_PATH}?to=${encodeURIComponent(clientUrl)}`;
+      }
+      console.warn(`Ignoring hostless onboarding redirect URL: ${clientUrl}`);
+    } catch {
+      console.warn(`Ignoring unparsable onboarding redirect URL: ${clientUrl}`);
+    }
+  }
+  return fallback;
+};
+
+/**
  * POST /payments/accounts
  * Creates the caller's payment account for a currency (provider derived from
  * it) or returns the existing one.
@@ -91,11 +142,17 @@ export const startOnboarding = async (req: AuthedRequest, res: Response) => {
         });
       }
 
-      const base = process.env.FRONTEND_URL ?? 'http://localhost:8081';
+      // The app passes its deep link; Stripe gets an https wrapper that
+      // redirects back into the app (see ONBOARDING_RETURN_PATH).
+      const base = resolveOnboardingBaseUrl();
       const { url } = await driver.createOnboardingLink!({
         connectedAccountId,
-        refreshUrl: `${base}/wallet/onboarding`,
-        returnUrl: `${base}/wallet`,
+        refreshUrl: buildOnboardingRedirectUrl(
+          req,
+          req.body.refreshUrl,
+          `${base}/wallet/onboarding`,
+        ),
+        returnUrl: buildOnboardingRedirectUrl(req, req.body.returnUrl, `${base}/wallet`),
       });
       const updated = await prisma.paymentAccount.findUnique({ where: { id: account.id } });
       return res.status(200).json({
@@ -455,4 +512,64 @@ export const getWallet = async (req: AuthedRequest, res: Response) => {
     console.error('getWallet error:', error);
     return res.status(500).json({ error: 'Failed to fetch wallet' });
   }
+};
+
+const escapeHtml = (value: string): string =>
+  value.replace(
+    /[&<>"']/g,
+    (char) =>
+      ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      })[char]!,
+  );
+
+const renderOnboardingReturnPage = (deepLink: string | null): string => {
+  const handoff = deepLink
+    ? `<a href="${escapeHtml(deepLink)}" style="background:#0c538f;color:#fff;padding:14px 28px;border-radius:100px;text-decoration:none;font-weight:700">Return to QuickPeek</a>
+    <script>window.location.replace(${JSON.stringify(deepLink)});</script>`
+    : '<p>You can close this page and return to the QuickPeek app.</p>';
+
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Return to QuickPeek</title>
+  </head>
+  <body style="font-family:-apple-system,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#ffffff;color:#1A1A2E;text-align:center;padding:24px">
+    <h2>You're all set</h2>
+    <p>Finish up back in the QuickPeek app.</p>
+    ${handoff}
+  </body>
+</html>`;
+};
+
+/**
+ * GET /payments/onboarding/return?to=<deep link>
+ * Public handoff page Stripe redirects to after hosted onboarding. Stripe
+ * only accepts http(s) URLs, so this https page performs the final hop into
+ * the app. The `to` deep link is validated (host + safe scheme) before being
+ * embedded; anything else renders a plain "close this page" page.
+ */
+export const onboardingReturnPage = (req: Request, res: Response) => {
+  const to = typeof req.query.to === 'string' ? req.query.to : null;
+
+  let deepLink: string | null = null;
+  if (to) {
+    try {
+      const url = new URL(to);
+      const unsafeProtocols = ['javascript:', 'data:', 'file:', 'vbscript:'];
+      if (url.host && !unsafeProtocols.includes(url.protocol)) {
+        deepLink = to;
+      }
+    } catch {
+      deepLink = null;
+    }
+  }
+
+  return res.status(200).type('html').send(renderOnboardingReturnPage(deepLink));
 };

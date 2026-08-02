@@ -1,6 +1,7 @@
 import {
   AnswerRequestStatus,
   MessageType,
+  PaymentAccountStatus,
   PrismaClient,
   QuestionStatus,
   RatingRole,
@@ -73,7 +74,152 @@ const REVIEW_COMMENTS = [
   'Polite and detailed answer.',
   'Responded quickly even though it was busy.',
   'Clear and honest about what they saw.',
+  'Went above and beyond with extra context.',
+  'Friendly and easy to work with.',
+  'Answer matched exactly what I needed.',
+  'Professional and on time.',
+  'Would recommend to others in the area.',
+  'Thoughtful follow-up after the first reply.',
+  'Accurate details and good photos.',
+  'Patient with my follow-up questions.',
+  'Made the whole process straightforward.',
+  'Reliable and trustworthy.',
 ];
+
+const REVIEWS_PER_USER = 10;
+
+/** Wallet list demo: each user gets earned + spent payments on each of these days. */
+const WALLET_HISTORY_DAY_OFFSETS = [0, 1, 2];
+const WALLET_HISTORY_ANCHOR = new Date('2026-08-03T12:00:00.000Z');
+
+const WALLET_HISTORY_QUESTION_TITLES = [
+  'Coffee shop queue length?',
+  'Parking spot on Morris St?',
+  'Is the post office open?',
+];
+
+let walletHistoryFlowCounter = 0;
+
+function walletHistoryTimestamp(dayOffset: number, hour: number, minute: number): Date {
+  const date = new Date(WALLET_HISTORY_ANCHOR);
+  date.setUTCDate(date.getUTCDate() - dayOffset);
+  date.setUTCHours(hour, minute, 0, 0);
+  return date;
+}
+
+async function seedPaymentAccounts(users: { id: string }[]) {
+  for (const user of users) {
+    await prisma.paymentAccount.create({
+      data: {
+        userId: user.id,
+        provider: 'STRIPE',
+        currency: 'USD',
+        status: PaymentAccountStatus.ACTIVE,
+        payoutsEnabled: true,
+        connectedAccountId: `acct_seed_${user.id.slice(0, 8)}`,
+      },
+    });
+  }
+}
+
+/**
+ * Creates a closed question + accepted request + SUCCEEDED transaction so the
+ * wallet API can list realistic earned/spent rows for both parties.
+ */
+async function seedWalletSucceededTransaction(opts: {
+  payer: { id: string; username: string };
+  payee: { id: string; username: string };
+  categoryId: string;
+  amount: number;
+  createdAt: Date;
+  title: string;
+}) {
+  walletHistoryFlowCounter += 1;
+
+  const question = await prisma.question.create({
+    data: {
+      title: opts.title,
+      detail: 'Seeded payment for wallet transaction history.',
+      categoryId: opts.categoryId,
+      price: opts.amount,
+      acceptanceCriteria: 'Seeded wallet history payment.',
+      userId: opts.payer.id,
+      status: QuestionStatus.CLOSED,
+      answeredAt: opts.createdAt,
+      closedAt: opts.createdAt,
+      closeReason: 'Question answered',
+      createdAt: opts.createdAt,
+    },
+  });
+
+  const request = await prisma.answerRequest.create({
+    data: {
+      questionId: question.id,
+      responderId: opts.payee.id,
+      questionerId: opts.payer.id,
+      status: AnswerRequestStatus.ACCEPTED,
+      respondedAt: opts.createdAt,
+      createdAt: opts.createdAt,
+    },
+  });
+
+  await prisma.transaction.create({
+    data: {
+      provider: 'STRIPE',
+      type: 'QUESTION_PAYMENT',
+      status: 'SUCCEEDED',
+      amount: opts.amount,
+      currency: 'USD',
+      platformFee: 0,
+      payerId: opts.payer.id,
+      payeeId: opts.payee.id,
+      questionId: question.id,
+      answerRequestId: request.id,
+      providerRef: `seed-wallet-tx-${walletHistoryFlowCounter}`,
+      createdAt: opts.createdAt,
+      updatedAt: opts.createdAt,
+    },
+  });
+}
+
+async function seedWalletHistoryForAllUsers(
+  users: { id: string; username: string; name: string }[],
+  categoryId: string,
+) {
+  const userCount = users.length;
+
+  for (let userIndex = 0; userIndex < userCount; userIndex++) {
+    const user = users[userIndex];
+
+    for (const dayOffset of WALLET_HISTORY_DAY_OFFSETS) {
+      const title = WALLET_HISTORY_QUESTION_TITLES[dayOffset] ?? WALLET_HISTORY_QUESTION_TITLES[0];
+      const payeeForSpent = users[(userIndex + 1 + dayOffset) % userCount];
+      const payerForEarned = users[(userIndex + 2 + dayOffset) % userCount];
+      const spentAmount = 10 + userIndex + dayOffset * 5;
+      const earnedAmount = 15 + userIndex + dayOffset * 3;
+
+      await seedWalletSucceededTransaction({
+        payer: user,
+        payee: payeeForSpent,
+        categoryId,
+        amount: spentAmount,
+        createdAt: walletHistoryTimestamp(dayOffset, 10 + userIndex, 15),
+        title,
+      });
+
+      await seedWalletSucceededTransaction({
+        payer: payerForEarned,
+        payee: user,
+        categoryId,
+        amount: earnedAmount,
+        createdAt: walletHistoryTimestamp(dayOffset, 16 + userIndex, 45),
+        title,
+      });
+    }
+
+    console.log(`  ${user.username}: ${WALLET_HISTORY_DAY_OFFSETS.length * 2} wallet transactions across 3 days`);
+  }
+}
 
 const DECLINE_REASONS = [
   'Question already answered',
@@ -88,6 +234,10 @@ function makeEmail(suffix: string) {
 
 function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function randomStars(): number {
+  return Math.floor(Math.random() * 5) + 1;
 }
 
 async function createSystemMessage(opts: {
@@ -124,7 +274,7 @@ async function seedRequestToRespond(opts: {
     detail: string;
     acceptanceCriteria: string;
   };
-  responder: { id: string; username: string };
+  responder: { id: string; username: string; };
 }) {
   const request = await prisma.answerRequest.create({
     data: {
@@ -177,7 +327,7 @@ async function seedAcceptRequest(opts: {
   requestId: string;
   questionerId: string;
   questionerUsernameIs?: string;
-  responder: { id: string; username: string };
+  responder: { id: string; username: string; };
 }) {
   await prisma.answerRequest.update({
     where: { id: opts.requestId },
@@ -208,7 +358,7 @@ async function seedDeclineRequest(opts: {
   questionId: string;
   requestId: string;
   questionerId: string;
-  responder: { id: string; username: string };
+  responder: { id: string; username: string; };
   rejectionReason: string;
 }) {
   await prisma.$transaction(async (tx) => {
@@ -362,6 +512,109 @@ async function seedMutualReview(opts: {
 
   await recomputeUserRatingAggregate(opts.responderId, RatingRole.AS_RESPONDER);
   await recomputeUserRatingAggregate(opts.questionerId, RatingRole.AS_QUESTIONER);
+}
+
+/**
+ * Minimal answered-and-closed flow used to seed profile reviews. Mirrors the
+ * canonical happy path: request → accept → answer exchange → close → mutual review.
+ */
+async function seedCompletedReviewFlow(opts: {
+  questioner: { id: string; username: string; name: string; };
+  responder: { id: string; username: string; };
+  categoryId: string;
+  flowIndex: number;
+  questionerStars: number;
+  responderStars: number;
+  questionerComment: string;
+  responderComment: string;
+}) {
+  const question = await prisma.question.create({
+    data: {
+      title: `Review seed ${opts.responder.username} #${opts.flowIndex + 1}`,
+      detail: `Seeded closed question for review aggregation (${opts.questioner.name} asked, ${opts.responder.username} answered).`,
+      categoryId: opts.categoryId,
+      price: 3,
+      acceptanceCriteria: 'Any helpful answer with enough detail to close the question.',
+      userId: opts.questioner.id,
+      status: QuestionStatus.OPEN,
+    },
+  });
+
+  const fullQuestion = {
+    id: question.id,
+    userId: opts.questioner.id,
+    address: null,
+    latitude: null,
+    longitude: null,
+    detail: question.detail,
+    acceptanceCriteria: question.acceptanceCriteria,
+  };
+
+  const request = await seedRequestToRespond({
+    question: fullQuestion,
+    responder: opts.responder,
+  });
+
+  await seedAcceptRequest({
+    questionId: question.id,
+    requestId: request.id,
+    questionerId: opts.questioner.id,
+    responder: opts.responder,
+  });
+
+  await seedUserMessage({
+    questionId: question.id,
+    answerRequestId: request.id,
+    senderId: opts.responder.id,
+    text: 'Here is the information you asked for — hope it helps.',
+  });
+  await seedUserMessage({
+    questionId: question.id,
+    answerRequestId: request.id,
+    senderId: opts.questioner.id,
+    text: 'Perfect, thank you! That is exactly what I needed.',
+  });
+
+  await seedCloseQuestion({ questionId: question.id, reason: 'Question answered' });
+  await seedMutualReview({
+    requestId: request.id,
+    questionerId: opts.questioner.id,
+    responderId: opts.responder.id,
+    questionerStars: opts.questionerStars,
+    questionerComment: opts.questionerComment,
+    responderStars: opts.responderStars,
+    responderComment: opts.responderComment,
+  });
+}
+
+async function seedBulkReviewsPerUser(
+  users: { id: string; username: string; name: string; }[],
+  categoryId: string,
+) {
+  let flowIndex = 0;
+
+  for (let rateeIndex = 0; rateeIndex < users.length; rateeIndex++) {
+    const ratee = users[rateeIndex];
+    const reviewers = users.filter((user) => user.id !== ratee.id);
+
+    for (let reviewIndex = 0; reviewIndex < REVIEWS_PER_USER; reviewIndex++) {
+      const questioner = reviewers[reviewIndex % reviewers.length];
+
+      await seedCompletedReviewFlow({
+        questioner,
+        responder: ratee,
+        categoryId,
+        flowIndex,
+        questionerStars: randomStars(),
+        responderStars: randomStars(),
+        questionerComment: pick(REVIEW_COMMENTS),
+        responderComment: pick(REVIEW_COMMENTS),
+      });
+      flowIndex++;
+    }
+
+    console.log(`  ${ratee.username}: ${REVIEWS_PER_USER} revealed responder reviews`);
+  }
 }
 
 async function seed() {
@@ -1236,7 +1489,7 @@ async function seed() {
     sortInteractedOlderQ,
     sortInteractedNewerQ,
   ];
-  const sortAcceptedRequests: { id: string; questionId: string }[] = [];
+  const sortAcceptedRequests: { id: string; questionId: string; }[] = [];
   for (const question of sortAcceptedQuestions) {
     const fullQuestion = await prisma.question.findUnique({ where: { id: question.id } });
     if (!fullQuestion) continue;
@@ -1378,6 +1631,15 @@ async function seed() {
   });
   console.log('   henry_k answered and was reviewed by david_p (and vice versa)');
 
+  console.log('\nSeeding bulk profile reviews…');
+  await seedBulkReviewsPerUser(users, categories['other'].id);
+
+  console.log('\nSeeding payment accounts…');
+  await seedPaymentAccounts(users);
+
+  console.log('\nSeeding wallet transaction history…');
+  await seedWalletHistoryForAllUsers(users, categories['other'].id);
+
   console.log('\nRefreshing location timestamps for nearby queries…');
   await prisma.$executeRaw`UPDATE locations SET "updatedAt" = NOW()`;
 
@@ -1402,6 +1664,8 @@ async function seed() {
   console.log('     (henry_k / password123) to see the answered + reviewed chat from the responder side.');
   console.log('   CLOSED_ANSWERED: iris_j (test08@quickpeek.com) has a pending request on the pancake');
   console.log('     question that was closed into CLOSED_ANSWERED when david_p closed it as answered.');
+  console.log(`   Profile reviews: each seed user has ${REVIEWS_PER_USER} revealed responder reviews`);
+  console.log('   Wallet: each seed user has 6 succeeded payments across 3 days (3 spent, 3 earned)');
 }
 
 seed()

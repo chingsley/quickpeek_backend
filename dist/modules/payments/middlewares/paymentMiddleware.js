@@ -19,6 +19,25 @@ const validate = (schema, req, res, next) => {
     req.body = value;
     next();
 };
+/**
+ * Onboarding return/refresh URLs are deep links back into the app (custom
+ * scheme) or https pages — parseable URL, no executable/local schemes.
+ */
+const isSafeRedirectUrl = (value) => {
+    try {
+        const { protocol } = new URL(value);
+        return !['javascript:', 'data:', 'file:', 'vbscript:'].includes(protocol);
+    }
+    catch (_a) {
+        return false;
+    }
+};
+const redirectUrl = joi_1.default.string().custom((value, helpers) => {
+    if (!isSafeRedirectUrl(value)) {
+        return helpers.error('any.invalid');
+    }
+    return value;
+}, 'redirect URL validation');
 const validatePaymentAccountCreation = (req, res, next) => validate(joi_1.default.object({
     currency: joi_1.default.string().trim().length(3).required(),
 }), req, res, next);
@@ -27,6 +46,8 @@ const validateOnboarding = (req, res, next) => validate(joi_1.default.object({
     country: joi_1.default.string().trim().length(2).optional(),
     bankCode: joi_1.default.string().trim().max(10).optional(),
     accountNumber: joi_1.default.string().trim().max(20).optional(),
+    returnUrl: redirectUrl.optional(),
+    refreshUrl: redirectUrl.optional(),
 }), req, res, next);
 exports.validateOnboarding = validateOnboarding;
 const validatePaymentInitiation = (req, res, next) => validate(joi_1.default.object({

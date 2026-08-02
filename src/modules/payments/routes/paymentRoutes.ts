@@ -5,6 +5,7 @@ import {
   getAccountStatus,
   getWallet,
   listBanks,
+  onboardingReturnPage,
   payForRequest,
   startOnboarding,
   verifyPayment,
@@ -17,6 +18,9 @@ import {
 } from '../middlewares/paymentMiddleware';
 
 const router = Router();
+
+// Public: Stripe redirects the browser here after hosted onboarding.
+router.get('/onboarding/return', onboardingReturnPage);
 
 router.post('/accounts', authenticateToken, validatePaymentAccountCreation, createPaymentAccount);
 router.post('/accounts/onboarding', authenticateToken, validateOnboarding, startOnboarding);

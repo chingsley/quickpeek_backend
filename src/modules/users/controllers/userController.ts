@@ -16,7 +16,7 @@ const JWT_SECRET = config.jwtSecret!;
 const JWT_EXPIRES_IN = config.jwtExpiresIn!;
 const BCRYPT_SALT_ROUND = config.bcryptSaltRound!;
 
-const formatRating = (r: { averageRating: number; reviewsCount: number }) => ({
+const formatRating = (r: { averageRating: number; reviewsCount: number; }) => ({
   averageRating: r.averageRating,
   reviewsCount: r.reviewsCount,
 });

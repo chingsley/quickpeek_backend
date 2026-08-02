@@ -5,6 +5,8 @@ const authMiddleware_1 = require("../../../api/middlewares/authMiddleware");
 const paymentController_1 = require("../controllers/paymentController");
 const paymentMiddleware_1 = require("../middlewares/paymentMiddleware");
 const router = (0, express_1.Router)();
+// Public: Stripe redirects the browser here after hosted onboarding.
+router.get('/onboarding/return', paymentController_1.onboardingReturnPage);
 router.post('/accounts', authMiddleware_1.authenticateToken, paymentMiddleware_1.validatePaymentAccountCreation, paymentController_1.createPaymentAccount);
 router.post('/accounts/onboarding', authMiddleware_1.authenticateToken, paymentMiddleware_1.validateOnboarding, paymentController_1.startOnboarding);
 router.get('/accounts/status', authMiddleware_1.authenticateToken, paymentController_1.getAccountStatus);

@@ -266,6 +266,162 @@ describe('POST /api/v1/payments/accounts/onboarding', () => {
     }
   });
 
+  it('falls back to the default when FRONTEND_URL is empty', async () => {
+    const user = await createAuthUser({ email: 's5d@pay.dev', username: 's5d' });
+    await buildPaymentAccount(user.id, {
+      status: 'ONBOARDING',
+      payoutsEnabled: false,
+      connectedAccountId: 'acct_empty_url',
+    });
+    driver.createOnboardingLink.mockResolvedValue({ url: 'https://stripe.test/empty' });
+
+    const saved = process.env.FRONTEND_URL;
+    process.env.FRONTEND_URL = '';
+    try {
+      const res = await request(app)
+        .post('/api/v1/payments/accounts/onboarding')
+        .set('Authorization', `Bearer ${user.token}`)
+        .send({});
+      expect(res.status).toBe(200);
+      expect(driver.createOnboardingLink).toHaveBeenCalledWith({
+        connectedAccountId: 'acct_empty_url',
+        refreshUrl: 'http://localhost:8081/wallet/onboarding',
+        returnUrl: 'http://localhost:8081/wallet',
+      });
+    } finally {
+      process.env.FRONTEND_URL = saved;
+    }
+  });
+
+  it('uses a fully-qualified FRONTEND_URL unchanged', async () => {
+    const user = await createAuthUser({ email: 's5f@pay.dev', username: 's5f' });
+    await buildPaymentAccount(user.id, {
+      status: 'ONBOARDING',
+      payoutsEnabled: false,
+      connectedAccountId: 'acct_fq_url',
+    });
+    driver.createOnboardingLink.mockResolvedValue({ url: 'https://stripe.test/fq' });
+
+    const saved = process.env.FRONTEND_URL;
+    process.env.FRONTEND_URL = 'https://app.quickpeek.example.com';
+    try {
+      const res = await request(app)
+        .post('/api/v1/payments/accounts/onboarding')
+        .set('Authorization', `Bearer ${user.token}`)
+        .send({});
+      expect(res.status).toBe(200);
+      expect(driver.createOnboardingLink).toHaveBeenCalledWith({
+        connectedAccountId: 'acct_fq_url',
+        refreshUrl: 'https://app.quickpeek.example.com/wallet/onboarding',
+        returnUrl: 'https://app.quickpeek.example.com/wallet',
+      });
+    } finally {
+      process.env.FRONTEND_URL = saved;
+    }
+  });
+
+  it('prefixes the scheme when FRONTEND_URL lacks one', async () => {
+    const user = await createAuthUser({ email: 's5e@pay.dev', username: 's5e' });
+    await buildPaymentAccount(user.id, {
+      status: 'ONBOARDING',
+      payoutsEnabled: false,
+      connectedAccountId: 'acct_schemeless',
+    });
+    driver.createOnboardingLink.mockResolvedValue({ url: 'https://stripe.test/scheme' });
+
+    const saved = process.env.FRONTEND_URL;
+    process.env.FRONTEND_URL = 'pwiksxm-chingsley-8081.exp.direct';
+    try {
+      const res = await request(app)
+        .post('/api/v1/payments/accounts/onboarding')
+        .set('Authorization', `Bearer ${user.token}`)
+        .send({});
+      expect(res.status).toBe(200);
+      expect(driver.createOnboardingLink).toHaveBeenCalledWith({
+        connectedAccountId: 'acct_schemeless',
+        refreshUrl: 'https://pwiksxm-chingsley-8081.exp.direct/wallet/onboarding',
+        returnUrl: 'https://pwiksxm-chingsley-8081.exp.direct/wallet',
+      });
+    } finally {
+      process.env.FRONTEND_URL = saved;
+    }
+  });
+
+  it('wraps the client deep link in an https return-page URL', async () => {
+    const user = await createAuthUser({ email: 's5g@pay.dev', username: 's5g' });
+    await buildPaymentAccount(user.id, {
+      status: 'ONBOARDING',
+      payoutsEnabled: false,
+      connectedAccountId: 'acct_deeplink',
+    });
+    driver.createOnboardingLink.mockResolvedValue({ url: 'https://stripe.test/deeplink' });
+
+    const res = await request(app)
+      .post('/api/v1/payments/accounts/onboarding')
+      .set('Authorization', `Bearer ${user.token}`)
+      .set('x-forwarded-host', 'pwiksxm-chingsley-8081.exp.direct')
+      .set('x-forwarded-proto', 'https')
+      .send({
+        returnUrl: 'quickpeekfrontendv2://wallet/onboarding',
+        refreshUrl: 'quickpeekfrontendv2://wallet/onboarding',
+      });
+
+    expect(res.status).toBe(200);
+    const expectedTarget = encodeURIComponent('quickpeekfrontendv2://wallet/onboarding');
+    expect(driver.createOnboardingLink).toHaveBeenCalledWith({
+      connectedAccountId: 'acct_deeplink',
+      refreshUrl: `https://pwiksxm-chingsley-8081.exp.direct/api/v1/payments/onboarding/return?to=${expectedTarget}`,
+      returnUrl: `https://pwiksxm-chingsley-8081.exp.direct/api/v1/payments/onboarding/return?to=${expectedTarget}`,
+    });
+  });
+
+  it('rejects malformed or unsafe redirect URLs', async () => {
+    const user = await createAuthUser({ email: 's5h@pay.dev', username: 's5h' });
+    await buildPaymentAccount(user.id, {
+      status: 'ONBOARDING',
+      payoutsEnabled: false,
+      connectedAccountId: 'acct_badurl',
+    });
+
+    for (const body of [
+      { returnUrl: 'not a url' },
+      { refreshUrl: 'javascript:alert(1)' },
+      { returnUrl: 'file:///etc/passwd' },
+    ]) {
+      const res = await request(app)
+        .post('/api/v1/payments/accounts/onboarding')
+        .set('Authorization', `Bearer ${user.token}`)
+        .send(body);
+      expect(res.status).toBe(400);
+    }
+    expect(driver.createOnboardingLink).not.toHaveBeenCalled();
+  });
+
+  it('falls back when a client redirect URL has no host', async () => {
+    const user = await createAuthUser({ email: 's5i@pay.dev', username: 's5i' });
+    await buildPaymentAccount(user.id, {
+      status: 'ONBOARDING',
+      payoutsEnabled: false,
+      connectedAccountId: 'acct_hostless',
+    });
+    driver.createOnboardingLink.mockResolvedValue({ url: 'https://stripe.test/hostless' });
+
+    const res = await request(app)
+      .post('/api/v1/payments/accounts/onboarding')
+      .set('Authorization', `Bearer ${user.token}`)
+      .send({
+        returnUrl: 'quickpeekfrontendv2:///wallet/onboarding',
+        refreshUrl: 'exp:///--/wallet/onboarding',
+      });
+
+    expect(res.status).toBe(200);
+    expect(driver.createOnboardingLink).toHaveBeenCalledWith({
+      connectedAccountId: 'acct_hostless',
+      refreshUrl: 'http://localhost:8081/wallet/onboarding',
+      returnUrl: 'http://localhost:8081/wallet',
+    });
+  });
+
   it('onboards a Paystack responder with bank details', async () => {
     const user = await createAuthUser({ email: 's6@pay.dev', username: 's6' });
     await buildPaymentAccount(user.id, {
@@ -994,5 +1150,61 @@ describe('GET /api/v1/payments/wallet', () => {
       .get('/api/v1/payments/wallet')
       .set('Authorization', `Bearer ${questioner.token}`);
     expect(res.status).toBe(500);
+  });
+});
+
+describe('GET /api/v1/payments/onboarding/return', () => {
+  it('renders the handoff page with the deep link embedded and escaped', async () => {
+    const res = await request(app).get(
+      `/api/v1/payments/onboarding/return?to=${encodeURIComponent('quickpeekfrontendv2://wallet/onboarding?from=stripe&x=1')}`,
+    );
+    expect(res.status).toBe(200);
+    expect(res.type).toBe('text/html');
+    expect(res.text).toContain('Return to QuickPeek');
+    expect(res.text).toContain('quickpeekfrontendv2://wallet/onboarding?from=stripe&amp;x=1');
+    expect(res.text).toContain('window.location.replace');
+  });
+
+  it('renders the generic page without a deep link', async () => {
+    const res = await request(app).get('/api/v1/payments/onboarding/return');
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('close this page');
+    expect(res.text).not.toContain('window.location.replace');
+  });
+
+  it('ignores unsafe, unparsable and hostless targets', async () => {
+    for (const to of ['javascript:alert(1)', 'not a url', 'quickpeekfrontendv2:///x']) {
+      const res = await request(app).get(
+        `/api/v1/payments/onboarding/return?to=${encodeURIComponent(to)}`,
+      );
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('close this page');
+      expect(res.text).not.toContain('window.location.replace');
+    }
+  });
+});
+
+describe('buildOnboardingRedirectUrl (unit)', () => {
+  it('falls back for unparsable URLs (middleware normally rejects these)', async () => {
+    const { buildOnboardingRedirectUrl } = await import(
+      '../../../src/modules/payments/controllers/paymentController'
+    );
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const fakeReq = { header: () => undefined, protocol: 'http' } as any;
+    expect(buildOnboardingRedirectUrl(fakeReq, 'not a url', 'https://fallback.test/x')).toBe(
+      'https://fallback.test/x',
+    );
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('unparsable'));
+    warn.mockRestore();
+  });
+
+  it('builds the api base from the request, defaulting to localhost', async () => {
+    const { buildOnboardingRedirectUrl } = await import(
+      '../../../src/modules/payments/controllers/paymentController'
+    );
+    const fakeReq = { header: () => undefined, protocol: 'http' } as any;
+    expect(buildOnboardingRedirectUrl(fakeReq, 'quickpeekfrontendv2://wallet/onboarding', 'fb')).toBe(
+      `http://localhost:3000/api/v1/payments/onboarding/return?to=${encodeURIComponent('quickpeekfrontendv2://wallet/onboarding')}`,
+    );
   });
 });

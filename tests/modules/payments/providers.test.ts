@@ -84,16 +84,22 @@ describe('stripe provider', () => {
     expect(result).toEqual({ customerId: 'cus_1' });
   });
 
-  it('creates an express connected account with default country', async () => {
+  it('creates an express individual account with a prefilled business profile', async () => {
     mStripe.accounts.create.mockResolvedValue({ id: 'acct_1' });
     const result = await stripeProvider.createConnectedAccount({ email: 'a@b.c' });
     expect(mStripe.accounts.create).toHaveBeenCalledWith({
       type: 'express',
       email: 'a@b.c',
       country: 'US',
+      business_type: 'individual',
       capabilities: {
         card_payments: { requested: true },
         transfers: { requested: true },
+      },
+      business_profile: {
+        mcc: '8999',
+        product_description:
+          'On-demand answers to user questions about local places and services.',
       },
     });
     expect(result).toEqual({ connectedAccountId: 'acct_1' });
@@ -118,6 +124,7 @@ describe('stripe provider', () => {
       account: 'acct_1',
       refresh_url: 'https://app.test/refresh',
       return_url: 'https://app.test/return',
+      collect: 'currently_due',
       type: 'account_onboarding',
     });
     expect(result).toEqual({ url: 'https://stripe.test/onboard' });

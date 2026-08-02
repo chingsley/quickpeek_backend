@@ -53,9 +53,19 @@ exports.stripeProvider = {
                 type: 'express',
                 email: input.email,
                 country: (_a = input.country) !== null && _a !== void 0 ? _a : 'US',
+                // Responders are individuals; Stripe requires card_payments alongside
+                // transfers for US accounts, and that capability would otherwise put
+                // industry/website ("Business details") into the requirements. Both are
+                // platform-level facts, so satisfy them here and keep the hosted form
+                // to personal details + bank only.
+                business_type: 'individual',
                 capabilities: {
                     card_payments: { requested: true },
                     transfers: { requested: true },
+                },
+                business_profile: {
+                    mcc: '8999',
+                    product_description: 'On-demand answers to user questions about local places and services.',
                 },
             });
             return { connectedAccountId: account.id };
@@ -67,6 +77,9 @@ exports.stripeProvider = {
                 account: input.connectedAccountId,
                 refresh_url: input.refreshUrl,
                 return_url: input.returnUrl,
+                // Only ask for what is currently required — keeps the hosted flow
+                // short and avoids sections that don't apply yet.
+                collect: 'currently_due',
                 type: 'account_onboarding',
             });
             return { url: link.url };

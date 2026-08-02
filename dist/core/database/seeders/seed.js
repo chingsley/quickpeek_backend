@@ -73,7 +73,18 @@ const REVIEW_COMMENTS = [
     'Polite and detailed answer.',
     'Responded quickly even though it was busy.',
     'Clear and honest about what they saw.',
+    'Went above and beyond with extra context.',
+    'Friendly and easy to work with.',
+    'Answer matched exactly what I needed.',
+    'Professional and on time.',
+    'Would recommend to others in the area.',
+    'Thoughtful follow-up after the first reply.',
+    'Accurate details and good photos.',
+    'Patient with my follow-up questions.',
+    'Made the whole process straightforward.',
+    'Reliable and trustworthy.',
 ];
+const REVIEWS_PER_USER = 10;
 const DECLINE_REASONS = [
     'Question already answered',
     'Already got a response',
@@ -85,6 +96,9 @@ function makeEmail(suffix) {
 }
 function pick(arr) {
     return arr[Math.floor(Math.random() * arr.length)];
+}
+function randomStars() {
+    return Math.floor(Math.random() * 5) + 1;
 }
 function createSystemMessage(opts) {
     return __awaiter(this, void 0, void 0, function* () {
@@ -303,6 +317,90 @@ function seedMutualReview(opts) {
         });
         yield (0, ratings_1.recomputeUserRatingAggregate)(opts.responderId, client_1.RatingRole.AS_RESPONDER);
         yield (0, ratings_1.recomputeUserRatingAggregate)(opts.questionerId, client_1.RatingRole.AS_QUESTIONER);
+    });
+}
+/**
+ * Minimal answered-and-closed flow used to seed profile reviews. Mirrors the
+ * canonical happy path: request → accept → answer exchange → close → mutual review.
+ */
+function seedCompletedReviewFlow(opts) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const question = yield prisma.question.create({
+            data: {
+                title: `Review seed ${opts.responder.username} #${opts.flowIndex + 1}`,
+                detail: `Seeded closed question for review aggregation (${opts.questioner.name} asked, ${opts.responder.username} answered).`,
+                categoryId: opts.categoryId,
+                price: 3,
+                acceptanceCriteria: 'Any helpful answer with enough detail to close the question.',
+                userId: opts.questioner.id,
+                status: client_1.QuestionStatus.OPEN,
+            },
+        });
+        const fullQuestion = {
+            id: question.id,
+            userId: opts.questioner.id,
+            address: null,
+            latitude: null,
+            longitude: null,
+            detail: question.detail,
+            acceptanceCriteria: question.acceptanceCriteria,
+        };
+        const request = yield seedRequestToRespond({
+            question: fullQuestion,
+            responder: opts.responder,
+        });
+        yield seedAcceptRequest({
+            questionId: question.id,
+            requestId: request.id,
+            questionerId: opts.questioner.id,
+            responder: opts.responder,
+        });
+        yield seedUserMessage({
+            questionId: question.id,
+            answerRequestId: request.id,
+            senderId: opts.responder.id,
+            text: 'Here is the information you asked for — hope it helps.',
+        });
+        yield seedUserMessage({
+            questionId: question.id,
+            answerRequestId: request.id,
+            senderId: opts.questioner.id,
+            text: 'Perfect, thank you! That is exactly what I needed.',
+        });
+        yield seedCloseQuestion({ questionId: question.id, reason: 'Question answered' });
+        yield seedMutualReview({
+            requestId: request.id,
+            questionerId: opts.questioner.id,
+            responderId: opts.responder.id,
+            questionerStars: opts.questionerStars,
+            questionerComment: opts.questionerComment,
+            responderStars: opts.responderStars,
+            responderComment: opts.responderComment,
+        });
+    });
+}
+function seedBulkReviewsPerUser(users, categoryId) {
+    return __awaiter(this, void 0, void 0, function* () {
+        let flowIndex = 0;
+        for (let rateeIndex = 0; rateeIndex < users.length; rateeIndex++) {
+            const ratee = users[rateeIndex];
+            const reviewers = users.filter((user) => user.id !== ratee.id);
+            for (let reviewIndex = 0; reviewIndex < REVIEWS_PER_USER; reviewIndex++) {
+                const questioner = reviewers[reviewIndex % reviewers.length];
+                yield seedCompletedReviewFlow({
+                    questioner,
+                    responder: ratee,
+                    categoryId,
+                    flowIndex,
+                    questionerStars: randomStars(),
+                    responderStars: randomStars(),
+                    questionerComment: pick(REVIEW_COMMENTS),
+                    responderComment: pick(REVIEW_COMMENTS),
+                });
+                flowIndex++;
+            }
+            console.log(`  ${ratee.username}: ${REVIEWS_PER_USER} revealed responder reviews`);
+        }
     });
 }
 function seed() {
@@ -1233,6 +1331,8 @@ function seed() {
             responderComment: 'Clear question, easy to help.',
         });
         console.log('   henry_k answered and was reviewed by david_p (and vice versa)');
+        console.log('\nSeeding bulk profile reviews…');
+        yield seedBulkReviewsPerUser(users, categories['other'].id);
         console.log('\nRefreshing location timestamps for nearby queries…');
         yield prisma.$executeRaw `UPDATE locations SET "updatedAt" = NOW()`;
         console.log('\nSeeding market config defaults…');
@@ -1255,6 +1355,7 @@ function seed() {
         console.log('     (henry_k / password123) to see the answered + reviewed chat from the responder side.');
         console.log('   CLOSED_ANSWERED: iris_j (test08@quickpeek.com) has a pending request on the pancake');
         console.log('     question that was closed into CLOSED_ANSWERED when david_p closed it as answered.');
+        console.log(`   Profile reviews: each seed user has ${REVIEWS_PER_USER} revealed responder reviews`);
     });
 }
 seed()

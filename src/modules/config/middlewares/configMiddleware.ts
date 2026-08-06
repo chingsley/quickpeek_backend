@@ -9,6 +9,10 @@ export const validateMarketConfigUpdate = (req: Request, res: Response, next: Ne
   const schema = Joi.object({
     nearMeRadiusKm: Joi.number().min(0.1).max(500).optional(),
     reviewRevealWindowDays: Joi.number().integer().min(1).max(90).optional(),
+    radiusExactSpotKm: Joi.number().min(0.05).max(10).optional(),
+    radiusWalkingKm: Joi.number().min(0.1).max(20).optional(),
+    radiusNeighbourhoodKm: Joi.number().min(0.5).max(50).optional(),
+    radiusCityKm: Joi.number().min(1).max(500).optional(),
   }).min(1);
 
   const { error, value } = schema.validate(req.body);

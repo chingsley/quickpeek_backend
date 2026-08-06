@@ -29,20 +29,18 @@ const loggingMiddleware = (req, res, next) => {
         if (responseBody === undefined) {
             responseBody = body;
         }
-        const duration = Date.now() - start;
-        logger_1.default.info('Response', { method, url, duration });
         return originalSend(body);
     };
     res.on('finish', () => {
         var _a;
         const status = res.statusCode;
+        const duration = Date.now() - start;
+        const meta = Object.assign(Object.assign(Object.assign({ method: req.method, url: req.originalUrl || url, status,
+            duration }, (responseBody !== undefined ? { body: responseBody } : {})), (logRequestBody ? { requestBody: body } : {})), { userId: (_a = req.user) === null || _a === void 0 ? void 0 : _a.userId });
         if (SUCCESS_STATUS_CODES.has(status)) {
+            logger_1.default.info('Response', meta);
             return;
         }
-        const duration = Date.now() - start;
-        const meta = Object.assign(Object.assign({ method: req.method, url: req.originalUrl || url, status,
-            duration,
-            responseBody }, (logRequestBody ? { requestBody: body } : {})), { userId: (_a = req.user) === null || _a === void 0 ? void 0 : _a.userId });
         if (status >= 500) {
             logger_1.default.error('Non-success response', meta);
         }

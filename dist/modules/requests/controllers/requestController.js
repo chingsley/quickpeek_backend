@@ -18,10 +18,9 @@ const joi_1 = __importDefault(require("joi"));
 const client_2 = __importDefault(require("../../../core/database/prisma/client"));
 const socket_server_1 = require("../../../core/socket/socket.server");
 const messages_utils_1 = require("../../../common/utils/messages.utils");
-const geo_utils_1 = require("../../../common/utils/geo.utils");
+const locationScope_utils_1 = require("../../../common/utils/locationScope.utils");
 const ratings_1 = require("../../../common/utils/ratings");
 const requestViewer_utils_1 = require("../../../common/utils/requestViewer.utils");
-const configService_1 = require("../../config/configService");
 const DEFAULT_LIST_PAGE_SIZE = 20;
 const MAX_LIST_PAGE_SIZE = 50;
 const parsePagination = (query) => {
@@ -53,7 +52,7 @@ const createRequestQuestionSelect = {
     status: true,
     latitude: true,
     longitude: true,
-    restrictToNearby: true,
+    locationScope: true,
     address: true,
     detail: true,
     acceptanceCriteria: true,
@@ -67,7 +66,7 @@ const requestQuestionSummarySelect = {
     latitude: true,
     longitude: true,
     address: true,
-    restrictToNearby: true,
+    locationScope: true,
     category: { select: { id: true, name: true, slug: true } },
 };
 const requestQuestionDetailSelect = Object.assign(Object.assign({}, requestQuestionSummarySelect), { acceptanceCriteria: true, userId: true });
@@ -109,7 +108,7 @@ const requestSummary = (r) => {
             latitude: r.question.latitude,
             longitude: r.question.longitude,
             address: r.question.address,
-            restrictToNearby: r.question.restrictToNearby,
+            locationScope: r.question.locationScope,
             category: r.question.category,
         },
         counterparty: r.counterparty,
@@ -160,25 +159,28 @@ const createRequest = (req, res) => __awaiter(void 0, void 0, void 0, function* 
                 existingStatus: existing.status,
             });
         }
-        if (question.restrictToNearby &&
-            question.latitude != null &&
-            question.longitude != null) {
+        if (question.locationScope !== 'ANYWHERE') {
             const bodyLat = ((_a = req.body) === null || _a === void 0 ? void 0 : _a.lat) != null ? parseFloat(String(req.body.lat)) : NaN;
             const bodyLng = ((_b = req.body) === null || _b === void 0 ? void 0 : _b.lng) != null ? parseFloat(String(req.body.lng)) : NaN;
             const hasLiveCoords = !Number.isNaN(bodyLat) && !Number.isNaN(bodyLng);
-            if (!hasLiveCoords) {
+            const scopeCheck = yield (0, locationScope_utils_1.isWithinScope)({
+                scope: question.locationScope,
+                questionLat: question.latitude,
+                questionLng: question.longitude,
+                viewerLat: hasLiveCoords ? bodyLat : null,
+                viewerLng: hasLiveCoords ? bodyLng : null,
+            });
+            if (!scopeCheck.ok && scopeCheck.reason === 'NO_VIEWER_LOCATION') {
                 return res.status(400).json({
                     error: 'Location required to request this question',
                     reason: 'NO_VIEWER_LOCATION',
                 });
             }
-            const nearMeRadiusKm = yield (0, configService_1.getMarketConfigValue)(configService_1.MARKET_CONFIG_KEYS.nearMeRadiusKm);
-            const distance = (0, geo_utils_1.calculateHaversineDistance)(bodyLat, bodyLng, question.latitude, question.longitude);
-            if (distance > nearMeRadiusKm) {
+            if (!scopeCheck.ok) {
                 return res.status(403).json({
-                    error: `You are outside the near-me radius (${distance.toFixed(2)}km > ${nearMeRadiusKm}km)`,
+                    error: `You are outside this question's area (${scopeCheck.distanceKm.toFixed(2)}km > ${scopeCheck.radiusKm}km)`,
                     reason: 'OUTSIDE_RADIUS',
-                    distanceKm: Number(distance.toFixed(2)),
+                    distanceKm: Number(scopeCheck.distanceKm.toFixed(2)),
                 });
             }
         }
@@ -614,7 +616,7 @@ const getRequestDetail = (req, res) => __awaiter(void 0, void 0, void 0, functio
                     latitude: request.question.latitude,
                     longitude: request.question.longitude,
                     address: request.question.address,
-                    restrictToNearby: request.question.restrictToNearby,
+                    locationScope: request.question.locationScope,
                     category: request.question.category,
                 },
                 counterparty,

@@ -79,7 +79,7 @@ describe('questions', () => {
             latitude: 44.6126,
             longitude: -63.6192,
             address: '1 Spring Garden Rd, Halifax, NS',
-            restrictToNearby: true,
+            locationScope: 'NEIGHBOURHOOD',
           }),
         );
 
@@ -88,8 +88,34 @@ describe('questions', () => {
         latitude: 44.6126,
         longitude: -63.6192,
         address: '1 Spring Garden Rd, Halifax, NS',
-        restrictToNearby: true,
+        locationScope: 'NEIGHBOURHOOD',
       });
+    });
+
+    it('defaults to ANYWHERE when no scope is sent', async () => {
+      const res = await request(app)
+        .post('/api/v1/questions')
+        .set('Authorization', `Bearer ${questioner.token}`)
+        .send(buildQuestionPayload());
+      expect(res.status).toBe(201);
+      expect(res.body.data.locationScope).toBe('ANYWHERE');
+    });
+
+    it('rejects a scoped question without coordinates', async () => {
+      const res = await request(app)
+        .post('/api/v1/questions')
+        .set('Authorization', `Bearer ${questioner.token}`)
+        .send(buildQuestionPayload({ locationScope: 'CITY' }));
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/locationScope/);
+    });
+
+    it('rejects an unknown locationScope', async () => {
+      const res = await request(app)
+        .post('/api/v1/questions')
+        .set('Authorization', `Bearer ${questioner.token}`)
+        .send(buildQuestionPayload({ locationScope: 'EVERYWHERE' }));
+      expect(res.status).toBe(400);
     });
 
     it('requires authentication', async () => {
@@ -200,7 +226,7 @@ describe('questions', () => {
           latitude: 44.6126,
           longitude: -63.6192,
           address: 'downtown',
-          restrictToNearby: true,
+          locationScope: 'NEIGHBOURHOOD',
         },
       });
       const far = await prisma.question.create({
@@ -214,7 +240,7 @@ describe('questions', () => {
           latitude: 44.7,
           longitude: -63.7,
           address: 'far away',
-          restrictToNearby: true,
+          locationScope: 'NEIGHBOURHOOD',
         },
       });
 
@@ -223,6 +249,61 @@ describe('questions', () => {
       expect(byTitle['Geo Close'].distanceKm).toBeLessThanOrEqual(3);
       expect(byTitle['Geo Close'].nearMe).toBe(true);
       expect(byTitle['Geo Far'].nearMe).toBe(false);
+    });
+
+    it('marks eligible by scope radius, not by the browse radius', async () => {
+      await prisma.question.create({
+        data: {
+          title: 'Exact Near',
+          detail: 'detail',
+          categoryId,
+          price: 1,
+          acceptanceCriteria: 'criteria',
+          userId: questioner.id,
+          latitude: 44.6142,
+          longitude: -63.6192,
+          address: 'around the corner',
+          locationScope: 'EXACT_SPOT',
+        },
+      });
+      await prisma.question.create({
+        data: {
+          title: 'Exact Mid',
+          detail: 'detail',
+          categoryId,
+          price: 1,
+          acceptanceCriteria: 'criteria',
+          userId: questioner.id,
+          latitude: 44.6306,
+          longitude: -63.6192,
+          address: 'couple km away',
+          locationScope: 'EXACT_SPOT',
+        },
+      });
+      await prisma.question.create({
+        data: {
+          title: 'City Mid',
+          detail: 'detail',
+          categoryId,
+          price: 1,
+          acceptanceCriteria: 'criteria',
+          userId: questioner.id,
+          latitude: 44.6306,
+          longitude: -63.6192,
+          address: 'couple km away',
+          locationScope: 'CITY',
+        },
+      });
+
+      const res = await request(app).get('/api/v1/questions/feed?lat=44.6126&lng=-63.6192');
+      const byTitle = Object.fromEntries(res.body.data.items.map((q: any) => [q.title, q]));
+      // ~180 m: inside even the tightest scope.
+      expect(byTitle['Exact Near'].eligible).toBe(true);
+      // ~2 km: inside the browse radius (nearMe) but outside EXACT_SPOT.
+      expect(byTitle['Exact Mid'].nearMe).toBe(true);
+      expect(byTitle['Exact Mid'].eligible).toBe(false);
+      // Same distance is eligible for a CITY-scoped question.
+      expect(byTitle['City Mid'].eligible).toBe(true);
     });
 
     it('nearMe filter returns incoming questions within the market near-me radius only', async () => {
@@ -241,7 +322,7 @@ describe('questions', () => {
           userId: questioner.id,
           latitude: 44.6126,
           longitude: -63.6192,
-          restrictToNearby: true,
+          locationScope: 'NEIGHBOURHOOD',
         },
       });
       const edgeIncoming = await prisma.question.create({
@@ -254,7 +335,7 @@ describe('questions', () => {
           userId: questioner.id,
           latitude: 44.657,
           longitude: -63.6192,
-          restrictToNearby: true,
+          locationScope: 'NEIGHBOURHOOD',
         },
       });
       await prisma.question.create({
@@ -267,7 +348,7 @@ describe('questions', () => {
           userId: viewer.id,
           latitude: 44.6126,
           longitude: -63.6192,
-          restrictToNearby: true,
+          locationScope: 'NEIGHBOURHOOD',
         },
       });
 
@@ -343,7 +424,7 @@ describe('questions', () => {
       const freshQ = await mk('Fresh Section Q', {
         latitude: 44.6126,
         longitude: -63.6192,
-        restrictToNearby: true,
+        locationScope: 'NEIGHBOURHOOD',
       });
       await mk('New Section Q');
       const answeredStatusQ = await mk('Answered Status Q', {
@@ -596,12 +677,12 @@ describe('questions', () => {
       const nearbyNoReqCloseQ = await mkQuestion('Nearby No Req Close', {
         latitude: 44.6126,
         longitude: -63.6192,
-        restrictToNearby: true,
+        locationScope: 'NEIGHBOURHOOD',
       });
       const nearbyNoReqFarQ = await mkQuestion('Nearby No Req Far', {
         latitude: 44.62,
         longitude: -63.62,
-        restrictToNearby: true,
+        locationScope: 'NEIGHBOURHOOD',
       });
       const incomingNoReqOlderQ = await mkQuestion('Incoming No Req Older', {
         latitude: 45.0,
@@ -616,7 +697,7 @@ describe('questions', () => {
       const interactedNearbyQ = await mkQuestion('Interacted Nearby Read', {
         latitude: 44.6126,
         longitude: -63.6192,
-        restrictToNearby: true,
+        locationScope: 'NEIGHBOURHOOD',
         createdAt: new Date('2026-01-01T11:00:00.000Z'),
       });
       const interactedFarQ = await mkQuestion('Interacted Far Read', {
@@ -876,7 +957,7 @@ describe('questions', () => {
           latitude: 44.6126,
           longitude: -63.6192,
           address: 'downtown',
-          restrictToNearby: true,
+          locationScope: 'NEIGHBOURHOOD',
         },
       });
       detailQuestionId = q1.id;

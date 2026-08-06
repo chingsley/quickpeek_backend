@@ -5,7 +5,10 @@ export type QuestionFeedSortItem = {
   id: string;
   userId: string;
   createdAt: Date | string;
+  /** Inside the browse radius (market near-me). */
   nearMe?: boolean;
+  /** Inside the question's scope (can actually respond). */
+  eligible?: boolean;
   distanceKm?: number | null;
   feedAttention?: QuestionFeedAttention | null;
   viewerRequest?: ViewerRequestSummary | null;
@@ -27,7 +30,10 @@ const tierForItem = (item: QuestionFeedSortItem, viewerId: string): number => {
   if (unreadCount > 0) return 1;
 
   const isIncoming = item.userId !== viewerId;
-  if (isIncoming && !hasViewerRequest(item) && item.nearMe) return 2;
+  // Tier 2 = nearby AND answerable. An out-of-scope question never ranks
+  // here even inside the browse radius, and a far ANYWHERE question stays out
+  // even though it is technically answerable.
+  if (isIncoming && !hasViewerRequest(item) && item.nearMe && item.eligible) return 2;
   if (isIncoming && !hasViewerRequest(item)) return 3;
   if (isIncoming) return 4;
 

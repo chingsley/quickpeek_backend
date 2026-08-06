@@ -11,8 +11,9 @@ const DEFAULT_CATEGORY_SLUG = 'other';
  * Validates the new question payload.
  * Location fields are optional; if `latitude`/`longitude` are present,
  * `address` is required so the question can be displayed on the feed map.
- * `restrictToNearby` (when true) limits answering to viewers within the
- * market-wide near-me radius of the question's coordinates.
+ * `locationScope` (anything but `ANYWHERE`) limits answering to viewers
+ * within the scope's radius of the question's coordinates, resolved live
+ * from market config at check time.
  */
 export const validateQuestionCreation = async (
   req: Request,
@@ -27,7 +28,9 @@ export const validateQuestionCreation = async (
     latitude: LATITUDE.optional().allow(null),
     longitude: LONGITUDE.optional().allow(null),
     address: Joi.string().trim().max(300).optional().allow(null, ''),
-    restrictToNearby: Joi.boolean().default(false),
+    locationScope: Joi.string()
+      .valid('EXACT_SPOT', 'WALKING', 'NEIGHBOURHOOD', 'CITY', 'ANYWHERE')
+      .default('ANYWHERE'),
   });
 
   const { error, value } = schema.validate(req.body, { abortEarly: false, stripUnknown: true });
@@ -50,6 +53,13 @@ export const validateQuestionCreation = async (
     return res.status(400).json({
       error:
         'When location is provided, latitude, longitude and address are all required',
+    });
+  }
+
+  // A distance-gated scope is meaningless without coordinates to anchor it.
+  if (value.locationScope !== 'ANYWHERE' && (value.latitude == null || value.longitude == null)) {
+    return res.status(400).json({
+      error: 'locationScope other than ANYWHERE requires latitude and longitude',
     });
   }
 

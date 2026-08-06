@@ -1,8 +1,9 @@
-import { AnswerRequestStatus, Prisma, QuestionStatus } from '@prisma/client';
+import { AnswerRequestStatus, LocationScope, Prisma, QuestionStatus } from '@prisma/client';
 import { Request, Response } from 'express';
 import prisma from '../../../core/database/prisma/client';
 import { emitToUser } from '../../../core/socket/socket.server';
 import { calculateHaversineDistance } from '../../../common/utils/geo.utils';
+import { isWithinScope } from '../../../common/utils/locationScope.utils';
 import { createSystemMessage } from '../../../common/utils/messages.utils';
 import {
   getUserRatingByRole,
@@ -53,7 +54,7 @@ const publicQuestionShape = (q: any) => ({
   latitude: q.latitude,
   longitude: q.longitude,
   address: q.address,
-  restrictToNearby: q.restrictToNearby,
+  locationScope: q.locationScope,
   status: q.status,
   createdAt: q.createdAt.toISOString(),
   answeredAt: q.answeredAt?.toISOString() ?? null,
@@ -106,7 +107,7 @@ export const createQuestion = async (req: AuthedRequest, res: Response) => {
       latitude,
       longitude,
       address,
-      restrictToNearby,
+      locationScope,
     } = req.body;
 
     const question = await prisma.question.create({
@@ -119,7 +120,7 @@ export const createQuestion = async (req: AuthedRequest, res: Response) => {
         latitude: latitude ?? null,
         longitude: longitude ?? null,
         address: address ?? null,
-        restrictToNearby: !!restrictToNearby,
+        locationScope: locationScope ?? 'ANYWHERE',
         userId: req.user!.userId,
       },
       include: { category: { select: { id: true, name: true, slug: true } } },
@@ -212,7 +213,7 @@ export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
       ? await loadViewerRequestMap(viewerId, questionIds)
       : { requestMap: new Map<string, ViewerRequestSummary>() };
 
-    const enriched = rows.map((q) => {
+    const enriched = await Promise.all(rows.map(async (q) => {
       const item: any = { ...publicQuestionShape(q), userId: q.userId };
       let nearMe = false;
       if (viewerHasCoords && q.latitude != null && q.longitude != null) {
@@ -229,13 +230,24 @@ export const getQuestionFeed = async (req: AuthedRequest, res: Response) => {
       }
       item.nearMe = nearMe;
 
+      // `eligible` answers "can this viewer actually respond" (scope gate),
+      // as opposed to `nearMe`, which is just the browse radius.
+      const scopeCheck = await isWithinScope({
+        scope: q.locationScope,
+        questionLat: q.latitude,
+        questionLng: q.longitude,
+        viewerLat: viewerHasCoords ? effectiveLat : null,
+        viewerLng: viewerHasCoords ? effectiveLng : null,
+      });
+      item.eligible = scopeCheck.ok;
+
       const viewerRequest = requestMap.get(q.id) ?? null;
       if (viewerRequest) {
         item.viewerRequest = viewerRequest;
       }
 
       return item;
-    });
+    }));
 
     const visible = filterByNearMe
       ? enriched.filter((q: any) => {
@@ -336,7 +348,7 @@ type RawSearchHit = {
   latitude: number | null;
   longitude: number | null;
   address: string | null;
-  restrictToNearby: boolean;
+  locationScope: string;
   status: QuestionStatus;
   createdAt: Date;
   answeredAt: Date | null;
@@ -454,7 +466,7 @@ export const searchQuestions = async (req: AuthedRequest, res: Response) => {
         latitude: h.latitude,
         longitude: h.longitude,
         address: h.address,
-        restrictToNearby: h.restrictToNearby,
+        locationScope: h.locationScope,
         status: h.status,
         createdAt: h.createdAt.toISOString(),
         answeredAt: h.answeredAt?.toISOString() ?? null,
@@ -582,7 +594,7 @@ const computeCanRequest = async (
     status: QuestionStatus;
     latitude: number | null;
     longitude: number | null;
-    restrictToNearby: boolean;
+    locationScope: LocationScope;
   },
   viewer: { userId: string; latitude?: number | null; longitude?: number | null; } | null,
 ): Promise<{ canRequest: boolean; reason: CanRequestReason | null; existingRequestId: string | null; }> => {
@@ -616,25 +628,18 @@ const computeCanRequest = async (
     }
   }
 
-  // Proximity check only if the question opted into near-me restriction.
-  // The radius itself comes from market-wide config (single source of truth).
-  if (
-    question.restrictToNearby &&
-    question.latitude != null &&
-    question.longitude != null
-  ) {
-    if (!viewer || viewer.latitude == null || viewer.longitude == null) {
-      return { canRequest: false, reason: 'NO_VIEWER_LOCATION', existingRequestId };
-    }
-    const nearMeRadiusKm = await getMarketConfigValue(MARKET_CONFIG_KEYS.nearMeRadiusKm);
-    const distance = calculateHaversineDistance(
-      viewer.latitude,
-      viewer.longitude,
-      question.latitude,
-      question.longitude,
-    );
-    if (distance > nearMeRadiusKm) {
-      return { canRequest: false, reason: 'OUTSIDE_RADIUS', existingRequestId };
+  // Distance gate only when the question's scope demands one. The radius
+  // resolves live from market-wide config (single source of truth).
+  if (question.locationScope !== 'ANYWHERE') {
+    const scopeCheck = await isWithinScope({
+      scope: question.locationScope,
+      questionLat: question.latitude,
+      questionLng: question.longitude,
+      viewerLat: viewer?.latitude,
+      viewerLng: viewer?.longitude,
+    });
+    if (!scopeCheck.ok) {
+      return { canRequest: false, reason: scopeCheck.reason!, existingRequestId };
     }
   }
 
@@ -748,6 +753,15 @@ export const getQuestionDetail = async (req: AuthedRequest, res: Response) => {
       nearMe = distanceKm <= nearMeRadiusKm;
     }
 
+    // Scope gate for this viewer — drives the "within X m" copy client-side.
+    const scopeCheck = await isWithinScope({
+      scope: question.locationScope,
+      questionLat: question.latitude,
+      questionLng: question.longitude,
+      viewerLat: viewerWithCoords?.latitude,
+      viewerLng: viewerWithCoords?.longitude,
+    });
+
     return res.status(200).json({
       message: 'Successful',
       data: {
@@ -755,6 +769,8 @@ export const getQuestionDetail = async (req: AuthedRequest, res: Response) => {
         userId: question.userId,
         distanceKm,
         nearMe,
+        eligible: scopeCheck.ok,
+        scopeRadiusKm: scopeCheck.radiusKm,
         questioner: {
           id: question.user.id,
           name: question.user.name,

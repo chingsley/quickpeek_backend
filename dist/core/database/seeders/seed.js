@@ -85,6 +85,121 @@ const REVIEW_COMMENTS = [
     'Reliable and trustworthy.',
 ];
 const REVIEWS_PER_USER = 10;
+/** Wallet list demo: each user gets earned + spent payments on each of these days. */
+const WALLET_HISTORY_DAY_OFFSETS = [0, 1, 2];
+const WALLET_HISTORY_ANCHOR = new Date('2026-08-03T12:00:00.000Z');
+const WALLET_HISTORY_QUESTION_TITLES = [
+    'Coffee shop queue length?',
+    'Parking spot on Morris St?',
+    'Is the post office open?',
+];
+let walletHistoryFlowCounter = 0;
+function walletHistoryTimestamp(dayOffset, hour, minute) {
+    const date = new Date(WALLET_HISTORY_ANCHOR);
+    date.setUTCDate(date.getUTCDate() - dayOffset);
+    date.setUTCHours(hour, minute, 0, 0);
+    return date;
+}
+function seedPaymentAccounts(users) {
+    return __awaiter(this, void 0, void 0, function* () {
+        for (const user of users) {
+            yield prisma.paymentAccount.create({
+                data: {
+                    userId: user.id,
+                    provider: 'STRIPE',
+                    currency: 'USD',
+                    status: client_1.PaymentAccountStatus.ACTIVE,
+                    payoutsEnabled: true,
+                    connectedAccountId: `acct_seed_${user.id.slice(0, 8)}`,
+                },
+            });
+        }
+    });
+}
+/**
+ * Creates a closed question + accepted request + SUCCEEDED transaction so the
+ * wallet API can list realistic earned/spent rows for both parties.
+ */
+function seedWalletSucceededTransaction(opts) {
+    return __awaiter(this, void 0, void 0, function* () {
+        walletHistoryFlowCounter += 1;
+        const question = yield prisma.question.create({
+            data: {
+                title: opts.title,
+                detail: 'Seeded payment for wallet transaction history.',
+                categoryId: opts.categoryId,
+                price: opts.amount,
+                acceptanceCriteria: 'Seeded wallet history payment.',
+                userId: opts.payer.id,
+                status: client_1.QuestionStatus.CLOSED,
+                answeredAt: opts.createdAt,
+                closedAt: opts.createdAt,
+                closeReason: 'Question answered',
+                createdAt: opts.createdAt,
+            },
+        });
+        const request = yield prisma.answerRequest.create({
+            data: {
+                questionId: question.id,
+                responderId: opts.payee.id,
+                questionerId: opts.payer.id,
+                status: client_1.AnswerRequestStatus.ACCEPTED,
+                respondedAt: opts.createdAt,
+                createdAt: opts.createdAt,
+            },
+        });
+        yield prisma.transaction.create({
+            data: {
+                provider: 'STRIPE',
+                type: 'QUESTION_PAYMENT',
+                status: 'SUCCEEDED',
+                amount: opts.amount,
+                currency: 'USD',
+                platformFee: 0,
+                payerId: opts.payer.id,
+                payeeId: opts.payee.id,
+                questionId: question.id,
+                answerRequestId: request.id,
+                providerRef: `seed-wallet-tx-${walletHistoryFlowCounter}`,
+                createdAt: opts.createdAt,
+                updatedAt: opts.createdAt,
+            },
+        });
+    });
+}
+function seedWalletHistoryForAllUsers(users, categoryId) {
+    return __awaiter(this, void 0, void 0, function* () {
+        var _a;
+        const userCount = users.length;
+        for (let userIndex = 0; userIndex < userCount; userIndex++) {
+            const user = users[userIndex];
+            for (const dayOffset of WALLET_HISTORY_DAY_OFFSETS) {
+                const title = (_a = WALLET_HISTORY_QUESTION_TITLES[dayOffset]) !== null && _a !== void 0 ? _a : WALLET_HISTORY_QUESTION_TITLES[0];
+                const payeeForSpent = users[(userIndex + 1 + dayOffset) % userCount];
+                const payerForEarned = users[(userIndex + 2 + dayOffset) % userCount];
+                const spentAmount = 10 + userIndex + dayOffset * 5;
+                const earnedAmount = 15 + userIndex + dayOffset * 3;
+                yield seedWalletSucceededTransaction({
+                    payer: user,
+                    payee: payeeForSpent,
+                    categoryId,
+                    amount: spentAmount,
+                    createdAt: walletHistoryTimestamp(dayOffset, 10 + userIndex, 15),
+                    title,
+                });
+                yield seedWalletSucceededTransaction({
+                    payer: payerForEarned,
+                    payee: user,
+                    categoryId,
+                    amount: earnedAmount,
+                    createdAt: walletHistoryTimestamp(dayOffset, 16 + userIndex, 45),
+                    title,
+                });
+            }
+            console.log(`  ${user.username}: ${WALLET_HISTORY_DAY_OFFSETS.length * 2} wallet transactions across 3 days`);
+        }
+    });
+}
 const DECLINE_REASONS = [
     'Question already answered',
     'Already got a response',
@@ -523,7 +638,7 @@ function seed() {
                     longitude,
                     latitude,
                     address,
-                    restrictToNearby: !!qdef.withLocation,
+                    locationScope: qdef.withLocation ? 'NEIGHBOURHOOD' : 'ANYWHERE',
                     userId: test03.id,
                     status: qdef.status,
                     answeredAt: qdef.closeReason === 'Question answered'
@@ -622,7 +737,7 @@ function seed() {
                     longitude: centralLongitude + 0.001,
                     latitude: centralLatitude + 0.001,
                     address: pick(ADDRESSES),
-                    restrictToNearby: true,
+                    locationScope: 'NEIGHBOURHOOD',
                     userId: test03.id,
                     status: client_1.QuestionStatus.OPEN,
                 },
@@ -701,14 +816,14 @@ function seed() {
                 acceptanceCriteria: 'Wait time in minutes or photo of the pickup counter queue.',
             },
             {
-                // Pinned location but restrictToNearby=false: anyone can answer. This
-                // exercises the "toggle off" path on the /ask screen.
+                // Pinned location but scope ANYWHERE: anyone can answer. This
+                // exercises the "Anyone can answer" tier on the /ask screen.
                 title: 'Quinpool pharmacy recommendation?',
                 categorySlug: 'services',
                 price: 4,
                 detail: 'Looking for a recommended pharmacy near Quinpool for an elderly relative — names and why.',
                 acceptanceCriteria: 'Pharmacy name and a short note on service or accessibility.',
-                restrictToNearby: false,
+                locationScope: 'ANYWHERE',
             },
         ];
         const newDefs = [
@@ -977,7 +1092,7 @@ function seed() {
         ];
         function createFeedQuestion(def, nearTest03) {
             return __awaiter(this, void 0, void 0, function* () {
-                var _a, _b;
+                var _a, _b, _c;
                 const questioner = nextQuestioner();
                 const category = categories[def.categorySlug];
                 const useLocation = nearTest03 || Boolean(def.request);
@@ -1002,9 +1117,9 @@ function seed() {
                         longitude,
                         latitude,
                         address,
-                        // Default to the /ask screen's default-ON behaviour whenever a
-                        // location is pinned; individual defs can opt out via override.
-                        restrictToNearby: useLocation && def.restrictToNearby !== false,
+                        // Default to NEIGHBOURHOOD whenever a location is pinned
+                        // (the previous near-me default); defs can override the tier.
+                        locationScope: useLocation ? (_a = def.locationScope) !== null && _a !== void 0 ? _a : 'NEIGHBOURHOOD' : 'ANYWHERE',
                         userId: questioner.id,
                         status: client_1.QuestionStatus.OPEN,
                     },
@@ -1027,7 +1142,7 @@ function seed() {
                     return;
                 }
                 if (def.request === 'declined') {
-                    const reason = (_a = def.rejectionReason) !== null && _a !== void 0 ? _a : pick(DECLINE_REASONS);
+                    const reason = (_b = def.rejectionReason) !== null && _b !== void 0 ? _b : pick(DECLINE_REASONS);
                     yield seedDeclineRequest({
                         questionId: q.id,
                         requestId: request.id,
@@ -1048,7 +1163,7 @@ function seed() {
                     questionId: q.id,
                     answerRequestId: request.id,
                     senderId: test03.id,
-                    text: (_b = def.responderReply) !== null && _b !== void 0 ? _b : 'Here is the information you asked for — let me know if you need anything else.',
+                    text: (_c = def.responderReply) !== null && _c !== void 0 ? _c : 'Here is the information you asked for — let me know if you need anything else.',
                 });
                 yield seedUserMessage({
                     questionId: q.id,
@@ -1113,12 +1228,69 @@ function seed() {
                 longitude: -63.3197,
                 latitude: 44.5057,
                 address: 'Lawrencetown Beach, Halifax, NS',
-                restrictToNearby: true,
+                locationScope: 'NEIGHBOURHOOD',
                 userId: farQuestioner.id,
                 status: client_1.QuestionStatus.OPEN,
             },
         });
-        console.log('  far-away restrictToNearby question: Beach conditions at Lawrencetown?');
+        console.log('  far-away scoped question: Beach conditions at Lawrencetown?');
+        // -------------------------------------------------------------------------
+        // Location-scope tier fixtures (distances relative to central Halifax):
+        //   - EXACT_SPOT ~170 m away  → requestable when nearby
+        //   - EXACT_SPOT ~2 km away   → OUTSIDE_RADIUS until the responder is close
+        //   - CITY ~15 km away        → requestable across the metro area
+        {
+            const scopeFixtures = [
+                {
+                    title: 'Queue at the waterfront cafe?',
+                    detail: 'Is there a line at the cafe on the Halifax waterfront right now?',
+                    acceptanceCriteria: 'A quick yes/no or photo of the queue.',
+                    price: 2,
+                    latitude: 44.6141, // ~170 m from central
+                    longitude: -63.6192829,
+                    address: 'Halifax Waterfront, Halifax, NS',
+                    locationScope: 'EXACT_SPOT',
+                },
+                {
+                    title: 'Parking at the North End library?',
+                    detail: 'Is there free parking near the North End library today?',
+                    acceptanceCriteria: 'Photo of the lot or a quick yes/no.',
+                    price: 2,
+                    latitude: 44.6306, // ~2 km from central
+                    longitude: -63.6192829,
+                    address: 'North End, Halifax, NS',
+                    locationScope: 'EXACT_SPOT',
+                },
+                {
+                    title: 'Best Ghanaian food in Halifax?',
+                    detail: 'Where can I get good Ghanaian food anywhere in the Halifax area?',
+                    acceptanceCriteria: 'Restaurant name and a one-line recommendation.',
+                    price: 4,
+                    latitude: 44.7476, // ~15 km north (Bedford)
+                    longitude: -63.6192829,
+                    address: 'Bedford, NS',
+                    locationScope: 'CITY',
+                },
+            ];
+            for (const fixture of scopeFixtures) {
+                yield prisma.question.create({
+                    data: {
+                        title: fixture.title,
+                        detail: fixture.detail,
+                        categoryId: categories['location'].id,
+                        price: fixture.price,
+                        acceptanceCriteria: fixture.acceptanceCriteria,
+                        latitude: fixture.latitude,
+                        longitude: fixture.longitude,
+                        address: fixture.address,
+                        locationScope: fixture.locationScope,
+                        userId: farQuestioner.id,
+                        status: client_1.QuestionStatus.OPEN,
+                    },
+                });
+                console.log(`  scope fixture (${fixture.locationScope}): ${fixture.title}`);
+            }
+        }
         // -------------------------------------------------------------------------
         // Feed priority ordering examples for test03 (default Home sort).
         // Titles are prefixed "Sort T#" so you can spot each tier in the All feed.
@@ -1137,13 +1309,13 @@ function seed() {
             latitude: centralLatitude,
             longitude: centralLongitude,
             address: pick(ADDRESSES),
-            restrictToNearby: true,
+            locationScope: 'NEIGHBOURHOOD',
         });
         const sortNearbyFarQ = yield mkSortIncoming('Sort T2: Nearby Far', {
             latitude: 44.62,
             longitude: -63.62,
             address: pick(ADDRESSES),
-            restrictToNearby: true,
+            locationScope: 'NEIGHBOURHOOD',
         });
         const sortFarOlderQ = yield mkSortIncoming('Sort T3: Far Older', {
             latitude: 45.0,
@@ -1158,7 +1330,7 @@ function seed() {
         const sortInteractedOlderQ = yield mkSortIncoming('Sort T4: Interacted Older', {
             latitude: 44.613,
             longitude: -63.618,
-            restrictToNearby: true,
+            locationScope: 'NEIGHBOURHOOD',
             createdAt: new Date('2026-01-01T11:00:00.000Z'),
         });
         const sortInteractedNewerQ = yield mkSortIncoming('Sort T4: Interacted Newer', {
@@ -1333,6 +1505,10 @@ function seed() {
         console.log('   henry_k answered and was reviewed by david_p (and vice versa)');
         console.log('\nSeeding bulk profile reviews…');
         yield seedBulkReviewsPerUser(users, categories['other'].id);
+        console.log('\nSeeding payment accounts…');
+        yield seedPaymentAccounts(users);
+        console.log('\nSeeding wallet transaction history…');
+        yield seedWalletHistoryForAllUsers(users, categories['other'].id);
         console.log('\nRefreshing location timestamps for nearby queries…');
         yield prisma.$executeRaw `UPDATE locations SET "updatedAt" = NOW()`;
         console.log('\nSeeding market config defaults…');
@@ -1356,6 +1532,7 @@ function seed() {
         console.log('   CLOSED_ANSWERED: iris_j (test08@quickpeek.com) has a pending request on the pancake');
         console.log('     question that was closed into CLOSED_ANSWERED when david_p closed it as answered.');
         console.log(`   Profile reviews: each seed user has ${REVIEWS_PER_USER} revealed responder reviews`);
+        console.log('   Wallet: each seed user has 6 succeeded payments across 3 days (3 spent, 3 earned)');
     });
 }
 seed()

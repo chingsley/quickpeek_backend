@@ -7,7 +7,7 @@ const baseItem = (overrides: Record<string, unknown> = {}) => ({
   id: 'q-default',
   userId: otherId,
   createdAt: '2026-01-01T10:00:00.000Z',
-  nearMe: false,
+  eligible: false,
   distanceKm: null,
   feedAttention: {
     hasAttention: false,
@@ -48,6 +48,7 @@ describe('sortQuestionFeedByDefaultPriority', () => {
       baseItem({
         id: 'near-far',
         nearMe: true,
+        eligible: true,
         distanceKm: 1.2,
         latitude: 44.62,
         longitude: -63.62,
@@ -55,6 +56,7 @@ describe('sortQuestionFeedByDefaultPriority', () => {
       baseItem({
         id: 'near-close',
         nearMe: true,
+        eligible: true,
         distanceKm: 0.1,
         latitude: 44.6126,
         longitude: -63.6192,
@@ -108,7 +110,7 @@ describe('sortQuestionFeedByDefaultPriority', () => {
         id: 'with-req',
         viewerRequest: { id: 'r1', status: 'PENDING', rejectionReason: null, hasResponded: false, unreadCount: 0, isBlocked: false },
       }),
-      baseItem({ id: 'no-req', nearMe: false }),
+      baseItem({ id: 'no-req', eligible: false }),
     ];
 
     const sorted = sortQuestionFeedByDefaultPriority(items, viewerId).map((q) => q.id);

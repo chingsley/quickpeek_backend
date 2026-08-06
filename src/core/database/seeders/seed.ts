@@ -744,7 +744,7 @@ async function seed() {
         longitude,
         latitude,
         address,
-        restrictToNearby: !!qdef.withLocation,
+        locationScope: qdef.withLocation ? 'NEIGHBOURHOOD' : 'ANYWHERE',
         userId: test03.id,
         status: qdef.status,
         answeredAt:
@@ -853,7 +853,7 @@ async function seed() {
         longitude: centralLongitude + 0.001,
         latitude: centralLatitude + 0.001,
         address: pick(ADDRESSES),
-        restrictToNearby: true,
+        locationScope: 'NEIGHBOURHOOD',
         userId: test03.id,
         status: QuestionStatus.OPEN,
       },
@@ -904,12 +904,12 @@ async function seed() {
     rejectionReason?: string;
     responderReply?: string;
     /**
-     * Override the default restrictToNearby derivation. By default, any
-     * question with a location is restrictToNearby=true (mirrors the /ask
-     * screen where the toggle defaults ON when a location is pinned). Set
-     * explicitly to `false` for "location shown for context, anyone can answer".
+     * Override the default locationScope derivation. By default, any
+     * question with a location is NEIGHBOURHOOD (mirrors the previous
+     * near-me default). Set explicitly to 'ANYWHERE' for "location shown
+     * for context, anyone can answer", or to another tier for fixtures.
      */
-    restrictToNearby?: boolean;
+    locationScope?: 'EXACT_SPOT' | 'WALKING' | 'NEIGHBOURHOOD' | 'CITY' | 'ANYWHERE';
   };
 
   const nearYouDefs: FeedQuestionDef[] = [
@@ -956,14 +956,14 @@ async function seed() {
       acceptanceCriteria: 'Wait time in minutes or photo of the pickup counter queue.',
     },
     {
-      // Pinned location but restrictToNearby=false: anyone can answer. This
-      // exercises the "toggle off" path on the /ask screen.
+      // Pinned location but scope ANYWHERE: anyone can answer. This
+      // exercises the "Anyone can answer" tier on the /ask screen.
       title: 'Quinpool pharmacy recommendation?',
       categorySlug: 'services',
       price: 4,
       detail: 'Looking for a recommended pharmacy near Quinpool for an elderly relative — names and why.',
       acceptanceCriteria: 'Pharmacy name and a short note on service or accessibility.',
-      restrictToNearby: false,
+      locationScope: 'ANYWHERE',
     },
   ];
 
@@ -1263,9 +1263,9 @@ async function seed() {
         longitude,
         latitude,
         address,
-        // Default to the /ask screen's default-ON behaviour whenever a
-        // location is pinned; individual defs can opt out via override.
-        restrictToNearby: useLocation && def.restrictToNearby !== false,
+        // Default to NEIGHBOURHOOD whenever a location is pinned
+        // (the previous near-me default); defs can override the tier.
+        locationScope: useLocation ? def.locationScope ?? 'NEIGHBOURHOOD' : 'ANYWHERE',
         userId: questioner.id,
         status: QuestionStatus.OPEN,
       },
@@ -1388,12 +1388,70 @@ async function seed() {
       longitude: -63.3197,
       latitude: 44.5057,
       address: 'Lawrencetown Beach, Halifax, NS',
-      restrictToNearby: true,
+      locationScope: 'NEIGHBOURHOOD',
       userId: farQuestioner.id,
       status: QuestionStatus.OPEN,
     },
   });
-  console.log('  far-away restrictToNearby question: Beach conditions at Lawrencetown?');
+  console.log('  far-away scoped question: Beach conditions at Lawrencetown?');
+
+  // -------------------------------------------------------------------------
+  // Location-scope tier fixtures (distances relative to central Halifax):
+  //   - EXACT_SPOT ~170 m away  → requestable when nearby
+  //   - EXACT_SPOT ~2 km away   → OUTSIDE_RADIUS until the responder is close
+  //   - CITY ~15 km away        → requestable across the metro area
+  {
+    const scopeFixtures = [
+      {
+        title: 'Queue at the waterfront cafe?',
+        detail: 'Is there a line at the cafe on the Halifax waterfront right now?',
+        acceptanceCriteria: 'A quick yes/no or photo of the queue.',
+        price: 2,
+        latitude: 44.6141, // ~170 m from central
+        longitude: -63.6192829,
+        address: 'Halifax Waterfront, Halifax, NS',
+        locationScope: 'EXACT_SPOT' as const,
+      },
+      {
+        title: 'Parking at the North End library?',
+        detail: 'Is there free parking near the North End library today?',
+        acceptanceCriteria: 'Photo of the lot or a quick yes/no.',
+        price: 2,
+        latitude: 44.6306, // ~2 km from central
+        longitude: -63.6192829,
+        address: 'North End, Halifax, NS',
+        locationScope: 'EXACT_SPOT' as const,
+      },
+      {
+        title: 'Best Ghanaian food in Halifax?',
+        detail: 'Where can I get good Ghanaian food anywhere in the Halifax area?',
+        acceptanceCriteria: 'Restaurant name and a one-line recommendation.',
+        price: 4,
+        latitude: 44.7476, // ~15 km north (Bedford)
+        longitude: -63.6192829,
+        address: 'Bedford, NS',
+        locationScope: 'CITY' as const,
+      },
+    ];
+    for (const fixture of scopeFixtures) {
+      await prisma.question.create({
+        data: {
+          title: fixture.title,
+          detail: fixture.detail,
+          categoryId: categories['location'].id,
+          price: fixture.price,
+          acceptanceCriteria: fixture.acceptanceCriteria,
+          latitude: fixture.latitude,
+          longitude: fixture.longitude,
+          address: fixture.address,
+          locationScope: fixture.locationScope,
+          userId: farQuestioner.id,
+          status: QuestionStatus.OPEN,
+        },
+      });
+      console.log(`  scope fixture (${fixture.locationScope}): ${fixture.title}`);
+    }
+  }
 
   // -------------------------------------------------------------------------
   // Feed priority ordering examples for test03 (default Home sort).
@@ -1425,13 +1483,13 @@ async function seed() {
     latitude: centralLatitude,
     longitude: centralLongitude,
     address: pick(ADDRESSES),
-    restrictToNearby: true,
+    locationScope: 'NEIGHBOURHOOD',
   });
   const sortNearbyFarQ = await mkSortIncoming('Sort T2: Nearby Far', {
     latitude: 44.62,
     longitude: -63.62,
     address: pick(ADDRESSES),
-    restrictToNearby: true,
+    locationScope: 'NEIGHBOURHOOD',
   });
   const sortFarOlderQ = await mkSortIncoming('Sort T3: Far Older', {
     latitude: 45.0,
@@ -1446,7 +1504,7 @@ async function seed() {
   const sortInteractedOlderQ = await mkSortIncoming('Sort T4: Interacted Older', {
     latitude: 44.613,
     longitude: -63.618,
-    restrictToNearby: true,
+    locationScope: 'NEIGHBOURHOOD',
     createdAt: new Date('2026-01-01T11:00:00.000Z'),
   });
   const sortInteractedNewerQ = await mkSortIncoming('Sort T4: Interacted Newer', {

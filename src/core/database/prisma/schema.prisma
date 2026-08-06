@@ -90,6 +90,17 @@ enum AnswerRequestStatus {
   CLOSED_ANSWERED
 }
 
+/// Who may respond to a question, derived from its location intent.
+/// The numeric radius for each tier is resolved live from market_configs
+/// (see locationScope.utils.ts); ANYWHERE disables distance gating.
+enum LocationScope {
+  EXACT_SPOT
+  WALKING
+  NEIGHBOURHOOD
+  CITY
+  ANYWHERE
+}
+
 model Question {
   id                  String         @id @default(uuid())
   title               String
@@ -100,7 +111,7 @@ model Question {
   latitude            Float?
   longitude           Float?
   address             String?
-  restrictToNearby    Boolean        @default(false)
+  locationScope       LocationScope  @default(ANYWHERE)
   userId              String
   status              QuestionStatus @default(OPEN)
   createdAt           DateTime       @default(now())

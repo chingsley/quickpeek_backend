@@ -1,4 +1,4 @@
-import { AnswerRequestStatus, Prisma, QuestionStatus, RatingRole } from '@prisma/client';
+import { AnswerRequestStatus, LocationScope, Prisma, QuestionStatus, RatingRole } from '@prisma/client';
 import { Request, Response } from 'express';
 import Joi from 'joi';
 import prisma from '../../../core/database/prisma/client';
@@ -7,13 +7,9 @@ import {
   createQuestionBriefingMessages,
   createSystemMessage,
 } from '../../../common/utils/messages.utils';
-import { calculateHaversineDistance } from '../../../common/utils/geo.utils';
+import { isWithinScope } from '../../../common/utils/locationScope.utils';
 import { getUserRatingByRole } from '../../../common/utils/ratings';
 import { getActiveBlock } from '../../../common/utils/requestViewer.utils';
-import {
-  getMarketConfigValue,
-  MARKET_CONFIG_KEYS,
-} from '../../config/configService';
 
 type AuthedRequest = Request & { user?: { userId: string; }; };
 
@@ -54,7 +50,7 @@ type CreateRequestQuestion = {
   status: QuestionStatus;
   latitude: number | null;
   longitude: number | null;
-  restrictToNearby: boolean;
+  locationScope: LocationScope;
   address: string | null;
   detail: string;
   acceptanceCriteria: string;
@@ -65,7 +61,7 @@ const createRequestQuestionSelect = {
   status: true,
   latitude: true,
   longitude: true,
-  restrictToNearby: true,
+  locationScope: true,
   address: true,
   detail: true,
   acceptanceCriteria: true,
@@ -80,7 +76,7 @@ const requestQuestionSummarySelect = {
   latitude: true,
   longitude: true,
   address: true,
-  restrictToNearby: true,
+  locationScope: true,
   category: { select: { id: true, name: true, slug: true } },
 } as const;
 
@@ -142,7 +138,7 @@ const requestSummary = (r: {
     latitude: number | null;
     longitude: number | null;
     address: string | null;
-    restrictToNearby: boolean;
+    locationScope: LocationScope;
     category: { id: string; name: string; slug: string };
   } | null;
   counterparty?: unknown;
@@ -164,7 +160,7 @@ const requestSummary = (r: {
     latitude: r.question.latitude,
     longitude: r.question.longitude,
     address: r.question.address,
-    restrictToNearby: r.question.restrictToNearby,
+    locationScope: r.question.locationScope,
     category: r.question.category,
   },
   counterparty: r.counterparty,
@@ -222,33 +218,30 @@ export const createRequest = async (req: AuthedRequest, res: Response) => {
       });
     }
 
-    if (
-      question.restrictToNearby &&
-      question.latitude != null &&
-      question.longitude != null
-    ) {
+    if (question.locationScope !== 'ANYWHERE') {
       const bodyLat = req.body?.lat != null ? parseFloat(String(req.body.lat)) : NaN;
       const bodyLng = req.body?.lng != null ? parseFloat(String(req.body.lng)) : NaN;
       const hasLiveCoords = !Number.isNaN(bodyLat) && !Number.isNaN(bodyLng);
 
-      if (!hasLiveCoords) {
+      const scopeCheck = await isWithinScope({
+        scope: question.locationScope,
+        questionLat: question.latitude,
+        questionLng: question.longitude,
+        viewerLat: hasLiveCoords ? bodyLat : null,
+        viewerLng: hasLiveCoords ? bodyLng : null,
+      });
+
+      if (!scopeCheck.ok && scopeCheck.reason === 'NO_VIEWER_LOCATION') {
         return res.status(400).json({
           error: 'Location required to request this question',
           reason: 'NO_VIEWER_LOCATION',
         });
       }
-      const nearMeRadiusKm = await getMarketConfigValue(MARKET_CONFIG_KEYS.nearMeRadiusKm);
-      const distance = calculateHaversineDistance(
-        bodyLat,
-        bodyLng,
-        question.latitude,
-        question.longitude,
-      );
-      if (distance > nearMeRadiusKm) {
+      if (!scopeCheck.ok) {
         return res.status(403).json({
-          error: `You are outside the near-me radius (${distance.toFixed(2)}km > ${nearMeRadiusKm}km)`,
+          error: `You are outside this question's area (${scopeCheck.distanceKm!.toFixed(2)}km > ${scopeCheck.radiusKm}km)`,
           reason: 'OUTSIDE_RADIUS',
-          distanceKm: Number(distance.toFixed(2)),
+          distanceKm: Number(scopeCheck.distanceKm!.toFixed(2)),
         });
       }
     }
@@ -735,7 +728,7 @@ export const getRequestDetail = async (req: AuthedRequest, res: Response) => {
           latitude: request.question.latitude,
           longitude: request.question.longitude,
           address: request.question.address,
-          restrictToNearby: request.question.restrictToNearby,
+          locationScope: request.question.locationScope,
           category: request.question.category,
         },
         counterparty,

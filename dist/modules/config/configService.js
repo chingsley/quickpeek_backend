@@ -26,11 +26,19 @@ exports.MARKET_CONFIG_KEYS = {
     nearMeRadiusKm: 'nearMeRadiusKm',
     reviewRevealWindowDays: 'reviewRevealWindowDays',
     platformFeePercent: 'platformFeePercent',
+    radiusExactSpotKm: 'radiusExactSpotKm',
+    radiusWalkingKm: 'radiusWalkingKm',
+    radiusNeighbourhoodKm: 'radiusNeighbourhoodKm',
+    radiusCityKm: 'radiusCityKm',
 };
 const DEFAULTS = {
     [exports.MARKET_CONFIG_KEYS.nearMeRadiusKm]: 5,
     [exports.MARKET_CONFIG_KEYS.reviewRevealWindowDays]: 14,
     [exports.MARKET_CONFIG_KEYS.platformFeePercent]: 0,
+    [exports.MARKET_CONFIG_KEYS.radiusExactSpotKm]: 0.3,
+    [exports.MARKET_CONFIG_KEYS.radiusWalkingKm]: 1,
+    [exports.MARKET_CONFIG_KEYS.radiusNeighbourhoodKm]: 5,
+    [exports.MARKET_CONFIG_KEYS.radiusCityKm]: 25,
 };
 const CACHE_TTL_MS = 60000;
 const cache = new Map();

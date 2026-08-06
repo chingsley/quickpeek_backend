@@ -22,8 +22,9 @@ const DEFAULT_CATEGORY_SLUG = 'other';
  * Validates the new question payload.
  * Location fields are optional; if `latitude`/`longitude` are present,
  * `address` is required so the question can be displayed on the feed map.
- * `restrictToNearby` (when true) limits answering to viewers within the
- * market-wide near-me radius of the question's coordinates.
+ * `locationScope` (anything but `ANYWHERE`) limits answering to viewers
+ * within the scope's radius of the question's coordinates, resolved live
+ * from market config at check time.
  */
 const validateQuestionCreation = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
     const schema = joi_1.default.object({
@@ -34,7 +35,9 @@ const validateQuestionCreation = (req, res, next) => __awaiter(void 0, void 0, v
         latitude: LATITUDE.optional().allow(null),
         longitude: LONGITUDE.optional().allow(null),
         address: joi_1.default.string().trim().max(300).optional().allow(null, ''),
-        restrictToNearby: joi_1.default.boolean().default(false),
+        locationScope: joi_1.default.string()
+            .valid('EXACT_SPOT', 'WALKING', 'NEIGHBOURHOOD', 'CITY', 'ANYWHERE')
+            .default('ANYWHERE'),
     });
     const { error, value } = schema.validate(req.body, { abortEarly: false, stripUnknown: true });
     if (error) {
@@ -51,6 +54,12 @@ const validateQuestionCreation = (req, res, next) => __awaiter(void 0, void 0, v
         (value.latitude == null || value.longitude == null || !value.address)) {
         return res.status(400).json({
             error: 'When location is provided, latitude, longitude and address are all required',
+        });
+    }
+    // A distance-gated scope is meaningless without coordinates to anchor it.
+    if (value.locationScope !== 'ANYWHERE' && (value.latitude == null || value.longitude == null)) {
+        return res.status(400).json({
+            error: 'locationScope other than ANYWHERE requires latitude and longitude',
         });
     }
     // Assign default category while category selection is deferred in the UI.

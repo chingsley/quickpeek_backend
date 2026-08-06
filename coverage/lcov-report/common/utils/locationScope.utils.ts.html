@@ -3,7 +3,7 @@
 <html lang="en">
 
 <head>
-    <title>Code coverage report for common/utils/cache.ts</title>
+    <title>Code coverage report for common/utils/locationScope.utils.ts</title>
     <meta charset="utf-8" />
     <link rel="stylesheet" href="../../prettify.css" />
     <link rel="stylesheet" href="../../base.css" />
@@ -19,34 +19,34 @@
 <body>
 <div class='wrapper'>
     <div class='pad1'>
-        <h1><a href="../../index.html">All files</a> / <a href="index.html">common/utils</a> cache.ts</h1>
+        <h1><a href="../../index.html">All files</a> / <a href="index.html">common/utils</a> locationScope.utils.ts</h1>
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">71.42% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>20/28</span>
+                <span class='fraction'>24/24</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">50% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>1/2</span>
+                <span class='fraction'>11/11</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">75% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>3/4</span>
+                <span class='fraction'>4/4</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">70.37% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>19/27</span>
+                <span class='fraction'>20/20</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line medium'></div>
+    <div class='status-line high'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -121,122 +121,155 @@
 <a name='L56'></a><a href='#L56'>56</a>
 <a name='L57'></a><a href='#L57'>57</a>
 <a name='L58'></a><a href='#L58'>58</a>
-<a name='L59'></a><a href='#L59'>59</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">8x</span>
+<a name='L59'></a><a href='#L59'>59</a>
+<a name='L60'></a><a href='#L60'>60</a>
+<a name='L61'></a><a href='#L61'>61</a>
+<a name='L62'></a><a href='#L62'>62</a>
+<a name='L63'></a><a href='#L63'>63</a>
+<a name='L64'></a><a href='#L64'>64</a>
+<a name='L65'></a><a href='#L65'>65</a>
+<a name='L66'></a><a href='#L66'>66</a>
+<a name='L67'></a><a href='#L67'>67</a>
+<a name='L68'></a><a href='#L68'>68</a>
+<a name='L69'></a><a href='#L69'>69</a>
+<a name='L70'></a><a href='#L70'>70</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-yes">9x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">8x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">8x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">8x</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">8x</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">54x</span>
+<span class="cline-any cline-yes">54x</span>
+<span class="cline-any cline-yes">54x</span>
+<span class="cline-any cline-yes">53x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">109x</span>
+<span class="cline-any cline-yes">109x</span>
+<span class="cline-any cline-yes">61x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">48x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">48x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">47x</span>
+<span class="cline-any cline-yes">13x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">8x</span>
-<span class="cline-any cline-yes">2x</span>
-<span class="cline-any cline-yes">2x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">34x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">34x</span>
+<span class="cline-any cline-yes">12x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">22x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">8x</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import redisClient from '../../core/config/redis';
-&nbsp;
-const NEARBY_CACHE_TTL_SECONDS = 5 * 60; // 5 minutes
-// Quantize coords to ~100m buckets so nearby cache keys are reusable.
-const COORD_PRECISION = 3;
-&nbsp;
-export function <span class="fstat-no" title="function not covered" >nearbyCacheKey(</span>lat: number, lon: number, radiusInKm: number): string {
-  const qLat = <span class="cstat-no" title="statement not covered" >Number(lat.toFixed(COORD_PRECISION));</span>
-  const qLon = <span class="cstat-no" title="statement not covered" >Number(lon.toFixed(COORD_PRECISION));</span>
-<span class="cstat-no" title="statement not covered" >  return `nearbyQuestions:${qLat}:${qLon}:${radiusInKm}`;</span>
-}
-&nbsp;
-export async function getCachedNearbyQuestions&lt;T&gt;(key: string): Promise&lt;T | null&gt; {
-  try {
-    const cached = await redisClient.get(key);
-    if (!cached) return null;
-    return JSON.parse(cached) as T;
-  } catch (err) {
-<span class="cstat-no" title="statement not covered" >    console.error('getCachedNearbyQuestions: cache read failed', err);</span>
-<span class="cstat-no" title="statement not covered" >    return null;</span>
-  }
-}
-&nbsp;
-export async function setCachedNearbyQuestions(key: string, data: unknown): Promise&lt;void&gt; {
-  try {
-    await redisClient.set(key, JSON.stringify(data), 'EX', NEARBY_CACHE_TTL_SECONDS);
-  } catch (err) {
-    // Cache write failures are non-fatal.
-<span class="cstat-no" title="statement not covered" >    console.error('setCachedNearbyQuestions: cache write failed', err);</span>
-  }
-}
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import { LocationScope } from '@prisma/client';
+import { getMarketConfigValue } from '../../modules/config/configService';
+import { calculateHaversineDistance } from './geo.utils';
 &nbsp;
 /**
- * Invalidate nearby-question caches. Called when a new question is created
- * (the new draft would surface in nearby lists) or when assignment/answer
- * state changes. We use a scan over the prefix rather than tracking every
- * key because the keyspace is bounded by coord buckets and TTL.
+ * The radius for each scope tier lives in market_configs so it can be
+ * retuned without a deploy. ANYWHERE has no radius — no distance gating.
  */
-export async function invalidateNearbyQuestionsCache(): Promise&lt;void&gt; {
-  try {
-    let cursor = '0';
-    do {
-      const [next, keys] = await redisClient.scan(
-        cursor,
-        'MATCH',
-        'nearbyQuestions:*',
-        'COUNT',
-        200,
-      );
-      cursor = next;
-      <span class="missing-if-branch" title="if path not taken" >I</span>if (keys.length &gt; 0) {
-<span class="cstat-no" title="statement not covered" >        await redisClient.del(...keys);</span>
-      }
-    } while (cursor !== '0');
-  } catch (err) {
-<span class="cstat-no" title="statement not covered" >    console.error('invalidateNearbyQuestionsCache failed', err);</span>
+export const SCOPE_CONFIG_KEY: Record&lt;LocationScope, string | null&gt; = {
+  EXACT_SPOT: 'radiusExactSpotKm',
+  WALKING: 'radiusWalkingKm',
+  NEIGHBOURHOOD: 'radiusNeighbourhoodKm',
+  CITY: 'radiusCityKm',
+  ANYWHERE: null,
+};
+&nbsp;
+export const getScopeRadiusKm = async (scope: LocationScope): Promise&lt;number | null&gt; =&gt; {
+  const key = SCOPE_CONFIG_KEY[scope];
+  if (!key) return null;
+  return getMarketConfigValue(key);
+};
+&nbsp;
+export type ScopeCheckResult = {
+  ok: boolean;
+  reason: 'NO_VIEWER_LOCATION' | 'OUTSIDE_RADIUS' | null;
+  distanceKm: number | null;
+  radiusKm: number | null;
+};
+&nbsp;
+/**
+ * The single place distance gating is decided. A scoped question without
+ * coordinates cannot be anchored — creation validation prevents that state,
+ * and legacy/loose rows are treated as ungateable rather than locking
+ * everyone out.
+ */
+export const isWithinScope = async (opts: {
+  scope: LocationScope;
+  questionLat: number | null;
+  questionLng: number | null;
+  viewerLat?: number | null;
+  viewerLng?: number | null;
+}): Promise&lt;ScopeCheckResult&gt; =&gt; {
+  if (opts.scope === 'ANYWHERE') {
+    return { ok: true, reason: null, distanceKm: null, radiusKm: null };
   }
-}
+&nbsp;
+  const radiusKm = await getScopeRadiusKm(opts.scope);
+&nbsp;
+  if (opts.questionLat == null || opts.questionLng == null) {
+    return { ok: true, reason: null, distanceKm: null, radiusKm };
+  }
+&nbsp;
+  if (opts.viewerLat == null || opts.viewerLng == null) {
+    return { ok: false, reason: 'NO_VIEWER_LOCATION', distanceKm: null, radiusKm };
+  }
+&nbsp;
+  const distanceKm = calculateHaversineDistance(
+    opts.questionLat,
+    opts.questionLng,
+    opts.viewerLat,
+    opts.viewerLng,
+  );
+&nbsp;
+  if (radiusKm != null &amp;&amp; distanceKm &gt; radiusKm) {
+    return { ok: false, reason: 'OUTSIDE_RADIUS', distanceKm, radiusKm };
+  }
+&nbsp;
+  return { ok: true, reason: null, distanceKm, radiusKm };
+};
 &nbsp;</pre></td></tr></table></pre>
 
                 <div class='push'></div><!-- for sticky footer -->

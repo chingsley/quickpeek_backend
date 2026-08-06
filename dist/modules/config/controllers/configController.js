@@ -18,9 +18,22 @@ const configService_1 = require("../configService");
  */
 const getMarketConfig = (_req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const nearMeRadiusKm = yield (0, configService_1.getMarketConfigValue)(configService_1.MARKET_CONFIG_KEYS.nearMeRadiusKm);
-        const reviewRevealWindowDays = yield (0, configService_1.getMarketConfigValue)(configService_1.MARKET_CONFIG_KEYS.reviewRevealWindowDays);
-        const data = { nearMeRadiusKm, reviewRevealWindowDays };
+        const [nearMeRadiusKm, reviewRevealWindowDays, radiusExactSpotKm, radiusWalkingKm, radiusNeighbourhoodKm, radiusCityKm] = yield Promise.all([
+            (0, configService_1.getMarketConfigValue)(configService_1.MARKET_CONFIG_KEYS.nearMeRadiusKm),
+            (0, configService_1.getMarketConfigValue)(configService_1.MARKET_CONFIG_KEYS.reviewRevealWindowDays),
+            (0, configService_1.getMarketConfigValue)(configService_1.MARKET_CONFIG_KEYS.radiusExactSpotKm),
+            (0, configService_1.getMarketConfigValue)(configService_1.MARKET_CONFIG_KEYS.radiusWalkingKm),
+            (0, configService_1.getMarketConfigValue)(configService_1.MARKET_CONFIG_KEYS.radiusNeighbourhoodKm),
+            (0, configService_1.getMarketConfigValue)(configService_1.MARKET_CONFIG_KEYS.radiusCityKm),
+        ]);
+        const data = {
+            nearMeRadiusKm,
+            reviewRevealWindowDays,
+            radiusExactSpotKm,
+            radiusWalkingKm,
+            radiusNeighbourhoodKm,
+            radiusCityKm,
+        };
         return res.status(200).json({ message: 'Successful', data });
     }
     catch (error) {
@@ -35,16 +48,28 @@ exports.getMarketConfig = getMarketConfig;
  */
 const updateMarketConfig = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { nearMeRadiusKm, reviewRevealWindowDays } = req.body;
-        if (nearMeRadiusKm != null) {
-            yield (0, configService_1.setMarketConfigValue)(configService_1.MARKET_CONFIG_KEYS.nearMeRadiusKm, nearMeRadiusKm);
-        }
-        if (reviewRevealWindowDays != null) {
-            yield (0, configService_1.setMarketConfigValue)(configService_1.MARKET_CONFIG_KEYS.reviewRevealWindowDays, reviewRevealWindowDays);
+        const body = req.body;
+        const updatable = [
+            configService_1.MARKET_CONFIG_KEYS.nearMeRadiusKm,
+            configService_1.MARKET_CONFIG_KEYS.reviewRevealWindowDays,
+            configService_1.MARKET_CONFIG_KEYS.radiusExactSpotKm,
+            configService_1.MARKET_CONFIG_KEYS.radiusWalkingKm,
+            configService_1.MARKET_CONFIG_KEYS.radiusNeighbourhoodKm,
+            configService_1.MARKET_CONFIG_KEYS.radiusCityKm,
+        ];
+        for (const key of updatable) {
+            const value = body[key];
+            if (value != null) {
+                yield (0, configService_1.setMarketConfigValue)(key, value);
+            }
         }
         const data = {
             nearMeRadiusKm: yield (0, configService_1.getMarketConfigValue)(configService_1.MARKET_CONFIG_KEYS.nearMeRadiusKm),
             reviewRevealWindowDays: yield (0, configService_1.getMarketConfigValue)(configService_1.MARKET_CONFIG_KEYS.reviewRevealWindowDays),
+            radiusExactSpotKm: yield (0, configService_1.getMarketConfigValue)(configService_1.MARKET_CONFIG_KEYS.radiusExactSpotKm),
+            radiusWalkingKm: yield (0, configService_1.getMarketConfigValue)(configService_1.MARKET_CONFIG_KEYS.radiusWalkingKm),
+            radiusNeighbourhoodKm: yield (0, configService_1.getMarketConfigValue)(configService_1.MARKET_CONFIG_KEYS.radiusNeighbourhoodKm),
+            radiusCityKm: yield (0, configService_1.getMarketConfigValue)(configService_1.MARKET_CONFIG_KEYS.radiusCityKm),
         };
         return res.status(200).json({ message: 'Config updated', data });
     }

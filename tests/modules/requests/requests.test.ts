@@ -17,7 +17,7 @@ const buildQuestion = async (userId: string, categoryId: string, overrides: any 
       latitude: overrides.latitude ?? null,
       longitude: overrides.longitude ?? null,
       address: overrides.address ?? null,
-      restrictToNearby: overrides.restrictToNearby ?? false,
+      locationScope: overrides.locationScope ?? 'ANYWHERE',
     },
   });
   return q;
@@ -69,7 +69,7 @@ describe('requests lifecycle', () => {
         latitude: 44.6126,
         longitude: -63.6192,
         address: 'downtown',
-        restrictToNearby: true,
+        locationScope: 'NEIGHBOURHOOD',
       });
       geoQuestionId = geo.id;
     });
@@ -156,7 +156,7 @@ describe('requests lifecycle', () => {
       expect(res.body.reason).toBe('OUTSIDE_RADIUS');
     });
 
-    it('rejects restrictToNearby request without live GPS coords', async () => {
+    it('rejects scoped request without live GPS coords', async () => {
       const res = await request(app)
         .post(`/api/v1/questions/${geoQuestionId}/requests`)
         .set('Authorization', `Bearer ${farResponder.token}`);
@@ -169,6 +169,47 @@ describe('requests lifecycle', () => {
         .post(`/api/v1/questions/${geoQuestionId}/requests`)
         .set('Authorization', `Bearer ${responder.token}`)
         .send({ lat: 44.6126, lng: -63.6192 });
+      expect(res.status).toBe(201);
+    });
+
+    it('EXACT_SPOT: allows ~180 m and blocks ~2 km', async () => {
+      const spot = await buildQuestion(questioner.id, categoryId, {
+        title: 'Exact spot Q',
+        latitude: 44.6126,
+        longitude: -63.6192,
+        address: 'downtown',
+        locationScope: 'EXACT_SPOT',
+      });
+
+      const near = await createAuthUser({ email: 'near@qp.com', username: 'near' });
+      const close = await request(app)
+        .post(`/api/v1/questions/${spot.id}/requests`)
+        .set('Authorization', `Bearer ${near.token}`)
+        .send({ lat: 44.6142, lng: -63.6192 });
+      expect(close.status).toBe(201);
+
+      const mid = await createAuthUser({ email: 'mid@qp.com', username: 'mid' });
+      const outside = await request(app)
+        .post(`/api/v1/questions/${spot.id}/requests`)
+        .set('Authorization', `Bearer ${mid.token}`)
+        .send({ lat: 44.6306, lng: -63.6192 });
+      expect(outside.status).toBe(403);
+      expect(outside.body.reason).toBe('OUTSIDE_RADIUS');
+    });
+
+    it('CITY: allows a responder kilometres away that EXACT_SPOT would block', async () => {
+      const city = await buildQuestion(questioner.id, categoryId, {
+        title: 'City Q',
+        latitude: 44.6126,
+        longitude: -63.6192,
+        address: 'downtown',
+        locationScope: 'CITY',
+      });
+      const mid = await createAuthUser({ email: 'mid2@qp.com', username: 'mid2' });
+      const res = await request(app)
+        .post(`/api/v1/questions/${city.id}/requests`)
+        .set('Authorization', `Bearer ${mid.token}`)
+        .send({ lat: 44.6306, lng: -63.6192 });
       expect(res.status).toBe(201);
     });
 

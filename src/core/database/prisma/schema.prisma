@@ -94,7 +94,7 @@ enum AnswerRequestStatus {
 /// The numeric radius for each tier is resolved live from market_configs
 /// (see locationScope.utils.ts); ANYWHERE disables distance gating.
 enum LocationScope {
-  EXACT_SPOT
+  AT_EXACT_ADDRESS
   WALKING
   NEIGHBOURHOOD
   CITY

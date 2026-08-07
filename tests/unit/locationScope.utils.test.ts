@@ -13,13 +13,13 @@ const ACROSS_TOWN = { lat: 44.6657, lng: -63.5756 }; // ~2 km away
 const FAR_CITY = { lat: 44.38, lng: -64.52 }; // Bridgewater-ish, > 60 km
 
 afterAll(async () => {
-  await setMarketConfigValue('radiusExactSpotKm', 0.3);
+  await setMarketConfigValue('radiusAtExactAddressKm', 0.3);
   await prisma.$disconnect();
 });
 
 describe('getScopeRadiusKm', () => {
   it('resolves tier radii from market config defaults', async () => {
-    expect(await getScopeRadiusKm('EXACT_SPOT')).toBe(0.3);
+    expect(await getScopeRadiusKm('AT_EXACT_ADDRESS')).toBe(0.3);
     expect(await getScopeRadiusKm('WALKING')).toBe(1);
     expect(await getScopeRadiusKm('NEIGHBOURHOOD')).toBe(5);
     expect(await getScopeRadiusKm('CITY')).toBe(25);
@@ -30,14 +30,14 @@ describe('getScopeRadiusKm', () => {
   });
 
   it('reads live overrides from market_configs', async () => {
-    await setMarketConfigValue('radiusExactSpotKm', 0.5);
-    expect(await getScopeRadiusKm('EXACT_SPOT')).toBe(0.5);
-    await setMarketConfigValue('radiusExactSpotKm', 0.3);
+    await setMarketConfigValue('radiusAtExactAddressKm', 0.5);
+    expect(await getScopeRadiusKm('AT_EXACT_ADDRESS')).toBe(0.5);
+    await setMarketConfigValue('radiusAtExactAddressKm', 0.3);
   });
 
   it('maps every scope to its config key (or null)', () => {
     expect(SCOPE_CONFIG_KEY).toEqual({
-      EXACT_SPOT: 'radiusExactSpotKm',
+      AT_EXACT_ADDRESS: 'radiusAtExactAddressKm',
       WALKING: 'radiusWalkingKm',
       NEIGHBOURHOOD: 'radiusNeighbourhoodKm',
       CITY: 'radiusCityKm',
@@ -54,7 +54,7 @@ describe('isWithinScope', () => {
 
   it('treats a scoped question without coordinates as ungateable (defensive)', async () => {
     const result = await isWithinScope({
-      scope: 'EXACT_SPOT',
+      scope: 'AT_EXACT_ADDRESS',
       questionLat: null,
       questionLng: null,
       viewerLat: NEAR.lat,
@@ -66,7 +66,7 @@ describe('isWithinScope', () => {
 
   it('requires the viewer location for scoped questions', async () => {
     const result = await isWithinScope({
-      scope: 'EXACT_SPOT',
+      scope: 'AT_EXACT_ADDRESS',
       questionLat: SPOT.lat,
       questionLng: SPOT.lng,
       viewerLat: null,
@@ -75,9 +75,9 @@ describe('isWithinScope', () => {
     expect(result).toMatchObject({ ok: false, reason: 'NO_VIEWER_LOCATION', radiusKm: 0.3 });
   });
 
-  it('EXACT_SPOT: allows ~180 m, blocks ~2 km', async () => {
+  it('AT_EXACT_ADDRESS: allows ~180 m, blocks ~2 km', async () => {
     const near = await isWithinScope({
-      scope: 'EXACT_SPOT',
+      scope: 'AT_EXACT_ADDRESS',
       questionLat: SPOT.lat,
       questionLng: SPOT.lng,
       viewerLat: NEAR.lat,
@@ -86,7 +86,7 @@ describe('isWithinScope', () => {
     expect(near).toMatchObject({ ok: true, reason: null });
 
     const far = await isWithinScope({
-      scope: 'EXACT_SPOT',
+      scope: 'AT_EXACT_ADDRESS',
       questionLat: SPOT.lat,
       questionLng: SPOT.lng,
       viewerLat: ACROSS_TOWN.lat,
@@ -98,7 +98,7 @@ describe('isWithinScope', () => {
     expect(far.radiusKm).toBe(0.3);
   });
 
-  it('CITY: allows a viewer 2 km away that EXACT_SPOT blocked', async () => {
+  it('CITY: allows a viewer 2 km away that AT_EXACT_ADDRESS blocked', async () => {
     const result = await isWithinScope({
       scope: 'CITY',
       questionLat: SPOT.lat,

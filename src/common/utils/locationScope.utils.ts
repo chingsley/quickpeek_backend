@@ -7,7 +7,7 @@ import { calculateHaversineDistance } from './geo.utils';
  * retuned without a deploy. ANYWHERE has no radius — no distance gating.
  */
 export const SCOPE_CONFIG_KEY: Record<LocationScope, string | null> = {
-  EXACT_SPOT: 'radiusExactSpotKm',
+  AT_EXACT_ADDRESS: 'radiusAtExactAddressKm',
   WALKING: 'radiusWalkingKm',
   NEIGHBOURHOOD: 'radiusNeighbourhoodKm',
   CITY: 'radiusCityKm',

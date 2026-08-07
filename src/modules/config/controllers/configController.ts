@@ -8,7 +8,7 @@ import {
 export type MarketConfigResponse = {
   nearMeRadiusKm: number;
   reviewRevealWindowDays: number;
-  radiusExactSpotKm: number;
+  radiusAtExactAddressKm: number;
   radiusWalkingKm: number;
   radiusNeighbourhoodKm: number;
   radiusCityKm: number;
@@ -21,11 +21,11 @@ export type MarketConfigResponse = {
  */
 export const getMarketConfig = async (_req: Request, res: Response) => {
   try {
-    const [nearMeRadiusKm, reviewRevealWindowDays, radiusExactSpotKm, radiusWalkingKm, radiusNeighbourhoodKm, radiusCityKm] =
+    const [nearMeRadiusKm, reviewRevealWindowDays, radiusAtExactAddressKm, radiusWalkingKm, radiusNeighbourhoodKm, radiusCityKm] =
       await Promise.all([
         getMarketConfigValue(MARKET_CONFIG_KEYS.nearMeRadiusKm),
         getMarketConfigValue(MARKET_CONFIG_KEYS.reviewRevealWindowDays),
-        getMarketConfigValue(MARKET_CONFIG_KEYS.radiusExactSpotKm),
+        getMarketConfigValue(MARKET_CONFIG_KEYS.radiusAtExactAddressKm),
         getMarketConfigValue(MARKET_CONFIG_KEYS.radiusWalkingKm),
         getMarketConfigValue(MARKET_CONFIG_KEYS.radiusNeighbourhoodKm),
         getMarketConfigValue(MARKET_CONFIG_KEYS.radiusCityKm),
@@ -33,7 +33,7 @@ export const getMarketConfig = async (_req: Request, res: Response) => {
     const data: MarketConfigResponse = {
       nearMeRadiusKm,
       reviewRevealWindowDays,
-      radiusExactSpotKm,
+      radiusAtExactAddressKm,
       radiusWalkingKm,
       radiusNeighbourhoodKm,
       radiusCityKm,
@@ -48,7 +48,7 @@ export const getMarketConfig = async (_req: Request, res: Response) => {
 type UpdateBody = {
   nearMeRadiusKm?: number;
   reviewRevealWindowDays?: number;
-  radiusExactSpotKm?: number;
+  radiusAtExactAddressKm?: number;
   radiusWalkingKm?: number;
   radiusNeighbourhoodKm?: number;
   radiusCityKm?: number;
@@ -64,7 +64,7 @@ export const updateMarketConfig = async (req: Request, res: Response) => {
     const updatable = [
       MARKET_CONFIG_KEYS.nearMeRadiusKm,
       MARKET_CONFIG_KEYS.reviewRevealWindowDays,
-      MARKET_CONFIG_KEYS.radiusExactSpotKm,
+      MARKET_CONFIG_KEYS.radiusAtExactAddressKm,
       MARKET_CONFIG_KEYS.radiusWalkingKm,
       MARKET_CONFIG_KEYS.radiusNeighbourhoodKm,
       MARKET_CONFIG_KEYS.radiusCityKm,
@@ -79,7 +79,7 @@ export const updateMarketConfig = async (req: Request, res: Response) => {
     const data: MarketConfigResponse = {
       nearMeRadiusKm: await getMarketConfigValue(MARKET_CONFIG_KEYS.nearMeRadiusKm),
       reviewRevealWindowDays: await getMarketConfigValue(MARKET_CONFIG_KEYS.reviewRevealWindowDays),
-      radiusExactSpotKm: await getMarketConfigValue(MARKET_CONFIG_KEYS.radiusExactSpotKm),
+      radiusAtExactAddressKm: await getMarketConfigValue(MARKET_CONFIG_KEYS.radiusAtExactAddressKm),
       radiusWalkingKm: await getMarketConfigValue(MARKET_CONFIG_KEYS.radiusWalkingKm),
       radiusNeighbourhoodKm: await getMarketConfigValue(MARKET_CONFIG_KEYS.radiusNeighbourhoodKm),
       radiusCityKm: await getMarketConfigValue(MARKET_CONFIG_KEYS.radiusCityKm),

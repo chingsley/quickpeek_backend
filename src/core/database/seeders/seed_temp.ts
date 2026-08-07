@@ -32,7 +32,7 @@ const ANCHOR = {
  */
 const RADII = {
   nearMeRadiusKm: 5,
-  radiusExactSpotKm: 0.3,
+  radiusAtExactAddressKm: 0.3,
   radiusWalkingKm: 1,
   radiusNeighbourhoodKm: 5,
   radiusCityKm: 25,
@@ -134,7 +134,7 @@ const QUESTION_DEFS: QuestionDef[] = [
     acceptanceCriteria: 'A current head-count of the queue, or a photo of the line.',
     price: 5,
     categorySlug: 'location',
-    locationScope: 'EXACT_SPOT',
+    locationScope: 'AT_EXACT_ADDRESS',
     pinned: true,
   },
   {
@@ -196,8 +196,8 @@ const QUESTION_DEFS: QuestionDef[] = [
 
 const scopeRadiusKm = (scope: LocationScope): number | null => {
   switch (scope) {
-    case 'EXACT_SPOT':
-      return RADII.radiusExactSpotKm;
+    case 'AT_EXACT_ADDRESS':
+      return RADII.radiusAtExactAddressKm;
     case 'WALKING':
       return RADII.radiusWalkingKm;
     case 'NEIGHBOURHOOD':
@@ -369,7 +369,7 @@ function printSummary() {
   console.log('\nTWO CASES THAT PROVE near-me AND eligible ARE SEPARATE:');
   line();
   console.log('  umar_citywide on Q4 (CITY)     -> can request YES, but Near me does NOT show it');
-  console.log('  tina_local    on Q1 (EXACT_SPOT) -> Near me SHOWS it, but request is BLOCKED');
+  console.log('  tina_local    on Q1 (AT_EXACT_ADDRESS) -> Near me SHOWS it, but request is BLOCKED');
   line('=');
   console.log('');
 }

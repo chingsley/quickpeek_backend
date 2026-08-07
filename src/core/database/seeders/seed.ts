@@ -909,7 +909,7 @@ async function seed() {
      * near-me default). Set explicitly to 'ANYWHERE' for "location shown
      * for context, anyone can answer", or to another tier for fixtures.
      */
-    locationScope?: 'EXACT_SPOT' | 'WALKING' | 'NEIGHBOURHOOD' | 'CITY' | 'ANYWHERE';
+    locationScope?: 'AT_EXACT_ADDRESS' | 'WALKING' | 'NEIGHBOURHOOD' | 'CITY' | 'ANYWHERE';
   };
 
   const nearYouDefs: FeedQuestionDef[] = [
@@ -1397,8 +1397,8 @@ async function seed() {
 
   // -------------------------------------------------------------------------
   // Location-scope tier fixtures (distances relative to central Halifax):
-  //   - EXACT_SPOT ~170 m away  → requestable when nearby
-  //   - EXACT_SPOT ~2 km away   → OUTSIDE_RADIUS until the responder is close
+  //   - AT_EXACT_ADDRESS ~170 m away  → requestable when nearby
+  //   - AT_EXACT_ADDRESS ~2 km away   → OUTSIDE_RADIUS until the responder is close
   //   - CITY ~15 km away        → requestable across the metro area
   {
     const scopeFixtures = [
@@ -1410,7 +1410,7 @@ async function seed() {
         latitude: 44.6141, // ~170 m from central
         longitude: -63.6192829,
         address: 'Halifax Waterfront, Halifax, NS',
-        locationScope: 'EXACT_SPOT' as const,
+        locationScope: 'AT_EXACT_ADDRESS' as const,
       },
       {
         title: 'Parking at the North End library?',
@@ -1420,7 +1420,7 @@ async function seed() {
         latitude: 44.6306, // ~2 km from central
         longitude: -63.6192829,
         address: 'North End, Halifax, NS',
-        locationScope: 'EXACT_SPOT' as const,
+        locationScope: 'AT_EXACT_ADDRESS' as const,
       },
       {
         title: 'Best Ghanaian food in Halifax?',

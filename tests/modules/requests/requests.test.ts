@@ -172,13 +172,13 @@ describe('requests lifecycle', () => {
       expect(res.status).toBe(201);
     });
 
-    it('EXACT_SPOT: allows ~180 m and blocks ~2 km', async () => {
+    it('AT_EXACT_ADDRESS: allows ~180 m and blocks ~2 km', async () => {
       const spot = await buildQuestion(questioner.id, categoryId, {
         title: 'Exact spot Q',
         latitude: 44.6126,
         longitude: -63.6192,
         address: 'downtown',
-        locationScope: 'EXACT_SPOT',
+        locationScope: 'AT_EXACT_ADDRESS',
       });
 
       const near = await createAuthUser({ email: 'near@qp.com', username: 'near' });
@@ -197,7 +197,7 @@ describe('requests lifecycle', () => {
       expect(outside.body.reason).toBe('OUTSIDE_RADIUS');
     });
 
-    it('CITY: allows a responder kilometres away that EXACT_SPOT would block', async () => {
+    it('CITY: allows a responder kilometres away that AT_EXACT_ADDRESS would block', async () => {
       const city = await buildQuestion(questioner.id, categoryId, {
         title: 'City Q',
         latitude: 44.6126,

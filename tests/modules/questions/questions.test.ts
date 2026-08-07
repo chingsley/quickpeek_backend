@@ -1,6 +1,10 @@
 import request from 'supertest';
 import app from '../../../src/app';
 import prisma from '../../../src/core/database/prisma/client';
+import {
+  MARKET_CONFIG_KEYS,
+  setMarketConfigValue,
+} from '../../../src/modules/config/configService';
 import { clearDatabase, createAuthUser } from '../../helpers';
 import { QuestionStatus } from '@prisma/client';
 
@@ -263,7 +267,7 @@ describe('questions', () => {
           latitude: 44.6142,
           longitude: -63.6192,
           address: 'around the corner',
-          locationScope: 'EXACT_SPOT',
+          locationScope: 'AT_EXACT_ADDRESS',
         },
       });
       await prisma.question.create({
@@ -277,7 +281,7 @@ describe('questions', () => {
           latitude: 44.6306,
           longitude: -63.6192,
           address: 'couple km away',
-          locationScope: 'EXACT_SPOT',
+          locationScope: 'AT_EXACT_ADDRESS',
         },
       });
       await prisma.question.create({
@@ -299,7 +303,7 @@ describe('questions', () => {
       const byTitle = Object.fromEntries(res.body.data.items.map((q: any) => [q.title, q]));
       // ~180 m: inside even the tightest scope.
       expect(byTitle['Exact Near'].eligible).toBe(true);
-      // ~2 km: inside the browse radius (nearMe) but outside EXACT_SPOT.
+      // ~2 km: inside the browse radius (nearMe) but outside AT_EXACT_ADDRESS.
       expect(byTitle['Exact Mid'].nearMe).toBe(true);
       expect(byTitle['Exact Mid'].eligible).toBe(false);
       // Same distance is eligible for a CITY-scoped question.
@@ -1011,6 +1015,22 @@ describe('questions', () => {
         .set('Authorization', `Bearer ${responder.token}`);
       expect(res.body.data.canRequest).toBe(false);
       expect(res.body.data.canRequestReason).toBe('NO_VIEWER_LOCATION');
+    });
+
+    it('returns scopeRadiusKm from live market config (not stored on the question)', async () => {
+      const baseline = await request(app)
+        .get(`/api/v1/questions/${detailQuestionId}`)
+        .set('Authorization', `Bearer ${responder.token}`);
+      expect(baseline.body.data.scopeRadiusKm).toBe(5);
+
+      await setMarketConfigValue(MARKET_CONFIG_KEYS.radiusNeighbourhoodKm, 7);
+
+      const updated = await request(app)
+        .get(`/api/v1/questions/${detailQuestionId}`)
+        .set('Authorization', `Bearer ${responder.token}`);
+      expect(updated.body.data.scopeRadiusKm).toBe(7);
+
+      await setMarketConfigValue(MARKET_CONFIG_KEYS.radiusNeighbourhoodKm, 5);
     });
 
     it('returns canRequest=false CLOSED when question is closed for the owner', async () => {

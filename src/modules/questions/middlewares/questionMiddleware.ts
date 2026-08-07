@@ -29,7 +29,7 @@ export const validateQuestionCreation = async (
     longitude: LONGITUDE.optional().allow(null),
     address: Joi.string().trim().max(300).optional().allow(null, ''),
     locationScope: Joi.string()
-      .valid('EXACT_SPOT', 'WALKING', 'NEIGHBOURHOOD', 'CITY', 'ANYWHERE')
+      .valid('AT_EXACT_ADDRESS', 'WALKING', 'NEIGHBOURHOOD', 'CITY', 'ANYWHERE')
       .default('ANYWHERE'),
   });
 

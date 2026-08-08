@@ -515,7 +515,7 @@ const ABUJA: CityContent = {
       acceptanceCriteria: 'Current congestion level and the faster route right now.',
       place: A.airportRoad,
       locationScope: LocationScope.CITY,
-      questioner: 'ada_n',
+      questioner: 'kamsi_n',
       responder: 'emeka_e',
       askedHoursAgo: 6,
       requestedHoursAgo: 2,
@@ -593,7 +593,7 @@ const ABUJA: CityContent = {
       acceptanceCriteria: 'Gate status and closing time today.',
       place: A.millenniumPark,
       locationScope: LocationScope.NEIGHBOURHOOD,
-      questioner: 'ada_n',
+      questioner: 'kamsi_n',
       responder: 'zainab_y',
       chat: [
         { from: 'responder', text: 'Yes, gates are open till 6pm. Parking by the main gate is free today.' },
@@ -655,7 +655,7 @@ const ABUJA: CityContent = {
       place: A.jabiMall,
       locationScope: LocationScope.NEIGHBOURHOOD,
       questioner: 'emeka_e',
-      responder: 'ada_n',
+      responder: 'kamsi_n',
       chat: [
         { from: 'responder', text: 'Running till sunset, ₦3,000 per person. Not crowded at all right now.' },
         { from: 'questioner', text: 'We had a great evening — thanks!' },

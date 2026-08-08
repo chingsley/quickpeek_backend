@@ -57,7 +57,7 @@ Get test keys from [Stripe Dashboard → Developers → API keys](https://dashbo
 (Optional but needed for payments in the app — same publishable key in the frontend):
 
 ```bash
-cd /Users/kingsleyeneja/study_projects/my-apps/quickpeek/quickpeek_frontend_v2
+cd /Users/kingsleyeneja/study_projects/my-apps/quickpeek/quickpeek_frontend
 cp .env.example .env
 # Set EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_... (same pk_test as backend)
 ```

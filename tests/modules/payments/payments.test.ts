@@ -362,12 +362,12 @@ describe('POST /api/v1/payments/accounts/onboarding', () => {
       .set('x-forwarded-host', 'pwiksxm-chingsley-8081.exp.direct')
       .set('x-forwarded-proto', 'https')
       .send({
-        returnUrl: 'quickpeekfrontendv2://wallet/onboarding',
-        refreshUrl: 'quickpeekfrontendv2://wallet/onboarding',
+        returnUrl: 'quickpeekfrontend://wallet/onboarding',
+        refreshUrl: 'quickpeekfrontend://wallet/onboarding',
       });
 
     expect(res.status).toBe(200);
-    const expectedTarget = encodeURIComponent('quickpeekfrontendv2://wallet/onboarding');
+    const expectedTarget = encodeURIComponent('quickpeekfrontend://wallet/onboarding');
     expect(driver.createOnboardingLink).toHaveBeenCalledWith({
       connectedAccountId: 'acct_deeplink',
       refreshUrl: `https://pwiksxm-chingsley-8081.exp.direct/api/v1/payments/onboarding/return?to=${expectedTarget}`,
@@ -410,7 +410,7 @@ describe('POST /api/v1/payments/accounts/onboarding', () => {
       .post('/api/v1/payments/accounts/onboarding')
       .set('Authorization', `Bearer ${user.token}`)
       .send({
-        returnUrl: 'quickpeekfrontendv2:///wallet/onboarding',
+        returnUrl: 'quickpeekfrontend:///wallet/onboarding',
         refreshUrl: 'exp:///--/wallet/onboarding',
       });
 
@@ -1156,12 +1156,12 @@ describe('GET /api/v1/payments/wallet', () => {
 describe('GET /api/v1/payments/onboarding/return', () => {
   it('renders the handoff page with the deep link embedded and escaped', async () => {
     const res = await request(app).get(
-      `/api/v1/payments/onboarding/return?to=${encodeURIComponent('quickpeekfrontendv2://wallet/onboarding?from=stripe&x=1')}`,
+      `/api/v1/payments/onboarding/return?to=${encodeURIComponent('quickpeekfrontend://wallet/onboarding?from=stripe&x=1')}`,
     );
     expect(res.status).toBe(200);
     expect(res.type).toBe('text/html');
     expect(res.text).toContain('Return to QuickPeek');
-    expect(res.text).toContain('quickpeekfrontendv2://wallet/onboarding?from=stripe&amp;x=1');
+    expect(res.text).toContain('quickpeekfrontend://wallet/onboarding?from=stripe&amp;x=1');
     expect(res.text).toContain('window.location.replace');
   });
 
@@ -1173,7 +1173,7 @@ describe('GET /api/v1/payments/onboarding/return', () => {
   });
 
   it('ignores unsafe, unparsable and hostless targets', async () => {
-    for (const to of ['javascript:alert(1)', 'not a url', 'quickpeekfrontendv2:///x']) {
+    for (const to of ['javascript:alert(1)', 'not a url', 'quickpeekfrontend:///x']) {
       const res = await request(app).get(
         `/api/v1/payments/onboarding/return?to=${encodeURIComponent(to)}`,
       );
@@ -1203,8 +1203,8 @@ describe('buildOnboardingRedirectUrl (unit)', () => {
       '../../../src/modules/payments/controllers/paymentController'
     );
     const fakeReq = { header: () => undefined, protocol: 'http' } as any;
-    expect(buildOnboardingRedirectUrl(fakeReq, 'quickpeekfrontendv2://wallet/onboarding', 'fb')).toBe(
-      `http://localhost:3000/api/v1/payments/onboarding/return?to=${encodeURIComponent('quickpeekfrontendv2://wallet/onboarding')}`,
+    expect(buildOnboardingRedirectUrl(fakeReq, 'quickpeekfrontend://wallet/onboarding', 'fb')).toBe(
+      `http://localhost:3000/api/v1/payments/onboarding/return?to=${encodeURIComponent('quickpeekfrontend://wallet/onboarding')}`,
     );
   });
 });

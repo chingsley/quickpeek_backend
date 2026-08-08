@@ -1,6 +1,6 @@
 import { PaymentAccount, Transaction } from '@prisma/client';
 import prisma from '../../../core/database/prisma/client';
-import { emitToUser } from '../../../core/socket/socket.server';
+import { notifyUser } from '../../../common/utils/notify';
 import { createSystemMessage } from '../../../common/utils/messages.utils';
 import { PaymentProviderDriver } from '../providers/paymentProvider.types';
 
@@ -105,11 +105,26 @@ export const finalizeChargeOutcome = async (opts: {
     status: current.status,
   };
   const succeeded = nextStatus === 'SUCCEEDED';
-  emitToUser(current.payeeId, succeeded ? 'payment:received' : 'payment:failed', socketPayload);
-  emitToUser(current.payerId, succeeded ? 'payment:succeeded' : 'payment:failed', socketPayload);
+  const amountText = `${current.currency} ${current.amount.toFixed(2)}`;
+  const payData = { type: 'payment', answerRequestId: current.answerRequestId, transactionId: current.id };
+  notifyUser({
+    userId: current.payeeId,
+    event: succeeded ? 'payment:received' : 'payment:failed',
+    payload: socketPayload,
+    push: succeeded
+      ? { title: 'Payment received', body: `You earned ${amountText}`, data: payData }
+      : { title: 'Payment failed', body: `A ${amountText} payment to you failed`, data: payData },
+  });
+  notifyUser({
+    userId: current.payerId,
+    event: succeeded ? 'payment:succeeded' : 'payment:failed',
+    payload: socketPayload,
+    push: succeeded
+      ? { title: 'Payment sent', body: `Your ${amountText} payment went through`, data: payData }
+      : { title: 'Payment failed', body: `Your ${amountText} payment failed`, data: payData },
+  });
 
   if (current.answerRequestId && current.questionId) {
-    const amountText = `${current.currency} ${current.amount.toFixed(2)}`;
     const text = succeeded
       ? `Payment of ${amountText} received.`
       : `Payment of ${amountText} failed${

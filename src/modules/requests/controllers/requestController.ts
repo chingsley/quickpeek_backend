@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 import Joi from 'joi';
 import prisma from '../../../core/database/prisma/client';
 import { emitToUser } from '../../../core/socket/socket.server';
+import { notifyUser } from '../../../common/utils/notify';
 import {
   createQuestionBriefingMessages,
   createSystemMessage,
@@ -293,11 +294,20 @@ export const createRequest = async (req: AuthedRequest, res: Response) => {
       }),
     ]);
 
-    emitToUser(question.userId, 'request:new', {
-      id: request.id,
-      questionId,
-      responderId,
-      createdAt: request.createdAt.toISOString(),
+    notifyUser({
+      userId: question.userId,
+      event: 'request:new',
+      payload: {
+        id: request.id,
+        questionId,
+        responderId,
+        createdAt: request.createdAt.toISOString(),
+      },
+      push: {
+        title: 'New answer request',
+        body: `@${responderProfile?.username ?? 'someone'} wants to answer your question`,
+        data: { type: 'request:new', questionId, answerRequestId: request.id },
+      },
     });
 
     return res.status(201).json({ message: 'Request sent', data: { id: request.id, status: request.status } });
@@ -348,10 +358,19 @@ export const acceptRequest = async (req: AuthedRequest, res: Response) => {
       visibleToUserId: request.responderId,
     });
 
-    emitToUser(request.responderId, 'request:accepted', {
-      id,
-      questionId: request.questionId,
-      acceptedAt: now.toISOString(),
+    notifyUser({
+      userId: request.responderId,
+      event: 'request:accepted',
+      payload: {
+        id,
+        questionId: request.questionId,
+        acceptedAt: now.toISOString(),
+      },
+      push: {
+        title: 'Request accepted',
+        body: `You're approved to answer “${request.question.title}” — send your response`,
+        data: { type: 'request:accepted', questionId: request.questionId, answerRequestId: id },
+      },
     });
     emitToUser(userId, 'request:accepted', {
       id,
@@ -436,11 +455,20 @@ export const rejectRequest = async (req: AuthedRequest, res: Response) => {
       visibleToUserId: request.responderId,
     });
 
-    emitToUser(request.responderId, 'request:rejected', {
-      id,
-      questionId: request.questionId,
-      rejectionReason: value.rejectionReason,
-      rejectedAt: now.toISOString(),
+    notifyUser({
+      userId: request.responderId,
+      event: 'request:rejected',
+      payload: {
+        id,
+        questionId: request.questionId,
+        rejectionReason: value.rejectionReason,
+        rejectedAt: now.toISOString(),
+      },
+      push: {
+        title: 'Request declined',
+        body: `Your request to answer “${request.question.title}” was declined`,
+        data: { type: 'request:rejected', questionId: request.questionId, answerRequestId: id },
+      },
     });
     emitToUser(userId, 'request:rejected', {
       id,

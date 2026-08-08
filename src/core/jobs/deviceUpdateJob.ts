@@ -8,7 +8,14 @@ const processDeviceUpdate = async (job: Job) => {
   try {
     await prisma.user.update({
       where: { id: userId },
-      data: { deviceType, deviceToken, notificationsEnabled, locationSharingEnabled },
+      // Only write fields the client actually sent — a login that omits
+      // locationSharingEnabled must not clobber the stored preference.
+      data: {
+        ...(deviceType !== undefined ? { deviceType } : {}),
+        ...(deviceToken !== undefined ? { deviceToken } : {}),
+        ...(notificationsEnabled !== undefined ? { notificationsEnabled } : {}),
+        ...(locationSharingEnabled !== undefined ? { locationSharingEnabled } : {}),
+      },
     });
 
     console.log(`Updated device info for user ${userId}`);

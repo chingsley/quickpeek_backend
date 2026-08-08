@@ -152,6 +152,136 @@ describe('questions', () => {
     });
   });
 
+  describe('question:new broadcast', () => {
+    // The fan-out is fire-and-forget from the controller, so tests poll the
+    // spies until the async notify completes.
+    const waitFor = async (cond: () => boolean, tries = 50) => {
+      for (let i = 0; i < tries && !cond(); i++) {
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      expect(cond()).toBe(true);
+    };
+
+    let notifyUsersSpy: jest.SpyInstance;
+    let pushSpy: jest.SpyInstance;
+
+    beforeEach(() => {
+      const notify = require('../../../src/common/utils/notify');
+      const push = require('../../../src/common/utils/push');
+      notifyUsersSpy = jest.spyOn(notify, 'notifyUsers');
+      pushSpy = jest.spyOn(push, 'sendPushToUsers').mockResolvedValue([]);
+    });
+
+    afterEach(() => {
+      notifyUsersSpy.mockRestore();
+      pushSpy.mockRestore();
+    });
+
+    it('notifies in-scope users with notifications + location sharing, excluding the author', async () => {
+      const near = await createAuthUser({
+        email: 'near@qp.com',
+        username: 'near_user',
+        deviceToken: 'ExponentPushToken[near]',
+        location: { latitude: 44.6126, longitude: -63.6192 },
+      });
+      const far = await createAuthUser({
+        email: 'far2@qp.com',
+        username: 'far_user2',
+        deviceToken: 'ExponentPushToken[far]',
+        location: { latitude: 45.0, longitude: -64.0 },
+      });
+      const muted = await createAuthUser({
+        email: 'muted@qp.com',
+        username: 'muted_user',
+        notificationsEnabled: false,
+        deviceToken: 'ExponentPushToken[muted]',
+        location: { latitude: 44.6126, longitude: -63.6192 },
+      });
+
+      const res = await request(app)
+        .post('/api/v1/questions')
+        .set('Authorization', `Bearer ${questioner.token}`)
+        .send(
+          buildQuestionPayload({
+            latitude: 44.6126,
+            longitude: -63.6192,
+            address: '1 Spring Garden Rd, Halifax, NS',
+            locationScope: 'NEIGHBOURHOOD',
+          }),
+        );
+      expect(res.status).toBe(201);
+
+      await waitFor(() => notifyUsersSpy.mock.calls.length > 0);
+
+      const [recipientIds, event, payload, push] = notifyUsersSpy.mock.calls[0];
+      expect(event).toBe('question:new');
+      expect(recipientIds).toContain(near.id);
+      expect(recipientIds).not.toContain(far.id);
+      expect(recipientIds).not.toContain(muted.id);
+      expect(recipientIds).not.toContain(questioner.id);
+      expect(payload).toMatchObject({
+        id: res.body.data.id,
+        title: 'Where can I find late-night coffee?',
+        locationScope: 'NEIGHBOURHOOD',
+      });
+      expect(push).toMatchObject({ title: 'New question near you' });
+      expect(push.data).toMatchObject({ type: 'question:new', questionId: res.body.data.id });
+    });
+
+    it('does not fan out when no eligible users exist', async () => {
+      // No other users have locations here (questioner excluded as author).
+      const before = notifyUsersSpy.mock.calls.length;
+      const res = await request(app)
+        .post('/api/v1/questions')
+        .set('Authorization', `Bearer ${questioner.token}`)
+        .send(
+          buildQuestionPayload({
+            latitude: 44.0,
+            longitude: -64.5,
+            address: 'Remote spot',
+            locationScope: 'AT_EXACT_ADDRESS',
+          }),
+        );
+      expect(res.status).toBe(201);
+
+      // Give the fire-and-forget a chance to run, then confirm no new call.
+      await new Promise((r) => setTimeout(r, 150));
+      expect(notifyUsersSpy.mock.calls.length).toBe(before);
+    });
+
+    it('excludes users whose last reported location is stale', async () => {
+      // Nearby, but their location row is older than the freshness cutoff
+      // (default 24h via market config).
+      const stale = await createAuthUser({
+        email: 'stale@qp.com',
+        username: 'stale_user',
+        deviceToken: 'ExponentPushToken[stale]',
+        location: { latitude: 44.6126, longitude: -63.6192 },
+      });
+      await prisma.location.update({
+        where: { userId: stale.id },
+        data: { updatedAt: new Date(Date.now() - 25 * 3_600_000) }, // 25h ago
+      });
+
+      const res = await request(app)
+        .post('/api/v1/questions')
+        .set('Authorization', `Bearer ${questioner.token}`)
+        .send(
+          buildQuestionPayload({
+            latitude: 44.6126,
+            longitude: -63.6192,
+            address: '1 Spring Garden Rd, Halifax, NS',
+            locationScope: 'NEIGHBOURHOOD',
+          }),
+        );
+      expect(res.status).toBe(201);
+      await waitFor(() => notifyUsersSpy.mock.calls.length > 0);
+
+      const allRecipientIds = notifyUsersSpy.mock.calls.flatMap((c) => c[0] as string[]);
+      expect(allRecipientIds).not.toContain(stale.id);
+    });
+  });
+
   describe('GET /api/v1/questions/feed', () => {
     beforeAll(async () => {
       await clearDatabase();

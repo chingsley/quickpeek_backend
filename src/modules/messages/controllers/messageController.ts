@@ -1,8 +1,8 @@
 import { AnswerRequestStatus, MessageType } from '@prisma/client';
 import { Request, Response } from 'express';
 import prisma from '../../../core/database/prisma/client';
-import { emitToUser } from '../../../core/socket/socket.server';
 import { formatMessagePayload } from '../../../common/utils/messages.utils';
+import { notifyUser } from '../../../common/utils/notify';
 
 type AuthedRequest = Request & { user?: { userId: string } };
 
@@ -139,9 +139,24 @@ export const sendMessage = async (req: AuthedRequest, res: Response) => {
       },
     });
 
+    const sender = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { username: true, name: true },
+    });
+    const senderLabel = sender?.name || (sender?.username ? `@${sender.username}` : 'New message');
+
     const payload = formatMessagePayload({ ...message, replyTo });
     const recipientId = counterpartyIdOf(request!, userId);
-    emitToUser(recipientId, 'message:new', payload);
+    notifyUser({
+      userId: recipientId,
+      event: 'message:new',
+      payload,
+      push: {
+        title: senderLabel,
+        body: message.text,
+        data: { type: 'message:new', questionId: message.questionId, answerRequestId: message.answerRequestId },
+      },
+    });
 
     return res.status(201).json({ message: 'Message sent', data: payload });
   } catch (error) {

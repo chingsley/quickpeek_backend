@@ -233,5 +233,106 @@ describe('Users', () => {
       expect(res.status).toBe(400);
       expect(res.body.error).toEqual('"notificationsEnabled" must be [false]');
     });
+    it('allows login without locationSharingEnabled and does not overwrite the stored preference', async () => {
+      hashedPassword = await bcrypt.hash(loginPayload.password, 10);
+      await prisma.user.create({ data: { ...userData, password: hashedPassword } });
+
+      const { locationSharingEnabled: _omitted, ...payloadWithoutLocation } = loginPayload;
+      const res = await request(app)
+        .post('/api/v1/users/login')
+        .send(payloadWithoutLocation);
+
+      expect(res.status).toBe(200);
+      // The queued device update must not carry locationSharingEnabled when the
+      // client didn't send one — otherwise every login would clobber the
+      // user's saved preference.
+      const queuedData = deviceUpdateQueueAddMock.mock.calls.at(-1)?.[0] as unknown as Record<string, unknown>;
+      expect(queuedData.locationSharingEnabled).toBeUndefined();
+    });
+  });
+
+  describe('PUT /api/v1/users/location', () => {
+    beforeAll(async () => {
+      await clearAllSeed(prisma);
+      await prisma.location.deleteMany({});
+      await prisma.user.deleteMany({});
+    });
+    afterAll(async () => {
+      await prisma.$disconnect();
+    });
+
+    const makeUser = async (locationSharingEnabled = true) => {
+      const user = await prisma.user.create({
+        data: {
+          email: faker.internet.email(),
+          username: faker.internet.userName().replace(/[^a-zA-Z0-9_]/g, '_'),
+          password: await bcrypt.hash('password123', 10),
+          name: 'Location Tester',
+          deviceType: 'ios',
+          deviceToken: 'tok',
+          notificationsEnabled: true,
+          locationSharingEnabled,
+          isVerified: true,
+        },
+      });
+      const token = jwt.sign({ userId: user.id }, JWT_SECRET);
+      return { user, token };
+    };
+
+    it('upserts the caller location row and refreshes updatedAt', async () => {
+      const { user, token } = await makeUser();
+
+      const first = await request(app)
+        .put('/api/v1/users/location')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ latitude: 44.6126, longitude: -63.6192 });
+      expect(first.status).toBe(200);
+      expect(first.body.data).toMatchObject({ latitude: 44.6126, longitude: -63.6192 });
+
+      const row = await prisma.location.findUnique({ where: { userId: user.id } });
+      expect(row).not.toBeNull();
+
+      // Second report overwrites the same row (upsert), no duplicates.
+      const second = await request(app)
+        .put('/api/v1/users/location')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ latitude: 44.62, longitude: -63.62 });
+      expect(second.status).toBe(200);
+      const rows = await prisma.location.findMany({ where: { userId: user.id } });
+      expect(rows).toHaveLength(1);
+      expect(rows[0].latitude).toBeCloseTo(44.62);
+      expect(new Date(second.body.data.updatedAt).getTime()).toBeGreaterThanOrEqual(
+        new Date(first.body.data.updatedAt).getTime(),
+      );
+    });
+
+    it('does not store a location when location sharing is disabled', async () => {
+      const { user, token } = await makeUser(false);
+
+      const res = await request(app)
+        .put('/api/v1/users/location')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ latitude: 44.6126, longitude: -63.6192 });
+      expect(res.status).toBe(200);
+
+      const row = await prisma.location.findUnique({ where: { userId: user.id } });
+      expect(row).toBeNull();
+    });
+
+    it('validates coordinate ranges', async () => {
+      const { token } = await makeUser();
+      const res = await request(app)
+        .put('/api/v1/users/location')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ latitude: 91, longitude: -63.6192 });
+      expect(res.status).toBe(400);
+    });
+
+    it('requires authentication', async () => {
+      const res = await request(app)
+        .put('/api/v1/users/location')
+        .send({ latitude: 44.6126, longitude: -63.6192 });
+      expect(res.status).toBe(401);
+    });
   });
 });

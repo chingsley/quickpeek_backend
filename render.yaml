@@ -19,6 +19,10 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # Push notifications use the global `fetch` API (Node 18+). Pinning the
+      # runtime keeps a future Render default from breaking push at runtime.
+      - key: NODE_VERSION
+        value: "22"
       - key: DATABASE_URL
         fromDatabase:
           name: quickpeek-db
@@ -36,11 +40,13 @@ services:
         value: '10'
       - key: QUESTION_DRAFT_TTL_HOURS
         value: '24'
+      # NOTE: FRONTEND_URL is deliberately NOT set here. It means "origin of
+      # the browser/web frontend" (socket.io CORS allowlist + fallback handoff
+      # for Stripe payout onboarding). QuickPeek has no web client yet, and
+      # both call sites have safe fallbacks, so leaving it unset is correct.
+      # Add it only when a web frontend is deployed.
+      #
       # ── Fill these in the Render dashboard after the blueprint applies ──
-      # Public URL of this API itself, e.g. https://quickpeek-api.onrender.com
-      # (used for Stripe onboarding return/refresh URLs and socket CORS).
-      - key: FRONTEND_URL
-        sync: false
       - key: CLOUDINARY_CLOUD_NAME
         sync: false
       - key: CLOUDINARY_API_KEY

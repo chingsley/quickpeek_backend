@@ -19,12 +19,12 @@ import { getPaymentProvider } from '../../../src/modules/payments/providers';
 import { providerForCurrency } from '../../../src/modules/payments/providers/currencies';
 
 const mStripe = new (Stripe as unknown as new () => {
-  customers: { create: jest.Mock };
-  accounts: { create: jest.Mock; retrieve: jest.Mock };
-  accountLinks: { create: jest.Mock };
-  paymentIntents: { create: jest.Mock; retrieve: jest.Mock };
-  ephemeralKeys: { create: jest.Mock };
-  webhooks: { constructEvent: jest.Mock };
+  customers: { create: jest.Mock; };
+  accounts: { create: jest.Mock; retrieve: jest.Mock; };
+  accountLinks: { create: jest.Mock; };
+  paymentIntents: { create: jest.Mock; retrieve: jest.Mock; };
+  ephemeralKeys: { create: jest.Mock; };
+  webhooks: { constructEvent: jest.Mock; };
 })();
 
 const STRIPE_KEY = 'sk_test_unit';
@@ -79,8 +79,8 @@ describe('provider factory', () => {
 describe('stripe provider', () => {
   it('creates a customer', async () => {
     mStripe.customers.create.mockResolvedValue({ id: 'cus_1' });
-    const result = await stripeProvider.createCustomer({ email: 'a@b.c', name: 'Ada' });
-    expect(mStripe.customers.create).toHaveBeenCalledWith({ email: 'a@b.c', name: 'Ada' });
+    const result = await stripeProvider.createCustomer({ email: 'a@b.c', name: 'kamsi' });
+    expect(mStripe.customers.create).toHaveBeenCalledWith({ email: 'a@b.c', name: 'kamsi' });
     expect(result).toEqual({ customerId: 'cus_1' });
   });
 
@@ -355,8 +355,8 @@ describe('paystack provider', () => {
   it('creates a customer splitting the name', async () => {
     mockFetch.mockReturnValue(fetchOk({ customer_code: 'CUS_1' }));
     const result = await paystackProvider.createCustomer({
-      email: 'ada@test.dev',
-      name: 'Ada Lovelace',
+      email: 'kamsi@test.dev',
+      name: 'kamsi Lovelace',
     });
     expect(mockFetch).toHaveBeenCalledWith(
       'https://api.paystack.co/customer',
@@ -364,8 +364,8 @@ describe('paystack provider', () => {
         method: 'POST',
         headers: expect.objectContaining({ Authorization: `Bearer ${PAYSTACK_KEY}` }),
         body: JSON.stringify({
-          email: 'ada@test.dev',
-          first_name: 'Ada',
+          email: 'kamsi@test.dev',
+          first_name: 'kamsi',
           last_name: 'Lovelace',
         }),
       }),
@@ -529,7 +529,7 @@ describe('paystack provider', () => {
   });
 
   it('resolves a bank account name', async () => {
-    mockFetch.mockReturnValue(fetchOk({ account_name: 'ADA LOVELACE' }));
+    mockFetch.mockReturnValue(fetchOk({ account_name: 'KAMSI LOVELACE' }));
     const result = await paystackProvider.resolveBankAccount!({
       accountNumber: '0123456789',
       bankCode: '058',
@@ -538,7 +538,7 @@ describe('paystack provider', () => {
       'https://api.paystack.co/bank/resolve?account_number=0123456789&bank_code=058',
       expect.objectContaining({ method: 'GET' }),
     );
-    expect(result).toEqual({ accountName: 'ADA LOVELACE' });
+    expect(result).toEqual({ accountName: 'KAMSI LOVELACE' });
   });
 
   it('uses the PAYSTACK_CALLBACK_URL override when configured', async () => {

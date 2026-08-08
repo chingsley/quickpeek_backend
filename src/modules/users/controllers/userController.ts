@@ -192,6 +192,51 @@ export const updateUserProfile = async (req: Request, res: Response) => {
 };
 
 /**
+ * PUT /api/v1/users/location
+ * Persists the caller's last-known position so server-side targeting
+ * (the question:new broadcast) has something to aim at. The app reports
+ * foreground GPS reads, throttled client-side; the row's updatedAt doubles
+ * as a freshness signal for the fan-out's stale-location cutoff.
+ *
+ * Privacy gate: writes only when the user has locationSharingEnabled — a
+ * user who turned sharing off must not accumulate a server-side trail.
+ */
+export const updateUserLocation = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.userId;
+    const { latitude, longitude } = req.body;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { locationSharingEnabled: true },
+    });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (!user.locationSharingEnabled) {
+      // Not an error — the client can't always know the toggle state before
+      // reporting. Silently accept so the caller can stay fire-and-forget.
+      return res.status(200).json({ message: 'Location sharing disabled; not stored' });
+    }
+
+    const location = await prisma.location.upsert({
+      where: { userId },
+      create: { userId, latitude, longitude },
+      update: { latitude, longitude },
+    });
+
+    return res.status(200).json({
+      message: 'Location updated',
+      data: { latitude: location.latitude, longitude: location.longitude, updatedAt: location.updatedAt.toISOString() },
+    });
+  } catch (error) {
+    console.error('updateUserLocation error:', error);
+    return res.status(500).json({ error: 'Failed to update location' });
+  }
+};
+
+/**
  * POST /api/v1/users/profile-image
  * Uploads a profile image via multipart form field `image`.
  */

@@ -3,16 +3,19 @@
 import { deviceUpdateQueue } from './deviceUpdateQueue';
 import { questionCleanupQueue } from './questionCleanupQueue';
 import { reviewRevealQueue } from './reviewRevealQueue';
+import { pushReceiptQueue } from './pushReceiptQueue';
 
 import {
   processDeviceUpdate,
   cleanupQuestions,
   processReviewReveal,
+  processPushReceiptJob,
 } from '../jobs';
 
 deviceUpdateQueue.process(processDeviceUpdate);
 questionCleanupQueue.process(cleanupQuestions);
 reviewRevealQueue.process(processReviewReveal);
+pushReceiptQueue.process(processPushReceiptJob);
 
 questionCleanupQueue.add(
   'cleanup',

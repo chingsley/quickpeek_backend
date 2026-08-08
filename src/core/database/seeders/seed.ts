@@ -67,7 +67,7 @@ const USER_DEFS: UserDef[] = [
   { name: 'Felix Nguyen', username: 'felix_n', email: 'felix@quickpeek.com', city: 'halifax', lat: 44.6451, lon: -63.5893 },
   { name: 'Grace Okafor', username: 'grace_o', email: 'grace@quickpeek.com', city: 'halifax', lat: 44.6377, lon: -63.5877 },
   // Abuja, Nigeria
-  { name: 'Ada Nwosu', username: 'ada_n', email: 'ada@quickpeek.com', city: 'abuja', lat: 9.0782, lon: 7.4708 },
+  { name: 'kamsi Nwosu', username: 'kamsi_n', email: 'kamsi@quickpeek.com', city: 'abuja', lat: 9.0782, lon: 7.4708 },
   { name: 'Chidi Okeke', username: 'chidi_o', email: 'chidi@quickpeek.com', city: 'abuja', lat: 9.0335, lon: 7.4845 },
   { name: 'Fatima Bello', username: 'fatima_b', email: 'fatima@quickpeek.com', city: 'abuja', lat: 9.0895, lon: 7.4921 },
   { name: 'Emeka Eze', username: 'emeka_e', email: 'emeka@quickpeek.com', city: 'abuja', lat: 9.0725, lon: 7.4235 },
@@ -79,7 +79,7 @@ const USER_DEFS: UserDef[] = [
 // ---------------------------------------------------------------------------
 // Places — real landmarks with approximate coordinates.
 // ---------------------------------------------------------------------------
-type Place = { name: string; lat: number; lon: number; address: string };
+type Place = { name: string; lat: number; lon: number; address: string; };
 
 const PLACES: Record<CityKey, Record<string, Place>> = {
   halifax: {
@@ -125,7 +125,7 @@ const CATEGORY_DEFS = [
 // Question definitions. `place` omitted → no pin and scope ANYWHERE.
 // A pinned question defaults to NEIGHBOURHOOD unless locationScope overrides.
 // ---------------------------------------------------------------------------
-type ChatLine = { from: 'responder' | 'questioner'; text: string };
+type ChatLine = { from: 'responder' | 'questioner'; text: string; };
 
 type QuestionBase = {
   title: string;
@@ -137,10 +137,10 @@ type QuestionBase = {
   locationScope?: LocationScope;
 };
 
-type FreshDef = QuestionBase & { askedHoursAgo: number };
-type PendingDef = QuestionBase & { questioner: string; responder: string; askedHoursAgo: number; requestedHoursAgo: number };
-type ActiveDef = QuestionBase & { questioner: string; responder: string; askedHoursAgo: number; chat: ChatLine[] };
-type DeclinedDef = QuestionBase & { questioner: string; responder: string; rejectionReason: string; askedHoursAgo: number };
+type FreshDef = QuestionBase & { askedHoursAgo: number; };
+type PendingDef = QuestionBase & { questioner: string; responder: string; askedHoursAgo: number; requestedHoursAgo: number; };
+type ActiveDef = QuestionBase & { questioner: string; responder: string; askedHoursAgo: number; chat: ChatLine[]; };
+type DeclinedDef = QuestionBase & { questioner: string; responder: string; rejectionReason: string; askedHoursAgo: number; };
 type AnsweredDef = QuestionBase & {
   questioner: string;
   responder: string;
@@ -153,7 +153,7 @@ type AnsweredDef = QuestionBase & {
   responderStars: number;
   responderComment: string;
 };
-type ClosedOtherDef = QuestionBase & { questioner: string; closeReason: string; closedDaysAgo: number };
+type ClosedOtherDef = QuestionBase & { questioner: string; closeReason: string; closedDaysAgo: number; };
 
 type CityContent = {
   fresh: FreshDef[];
@@ -756,7 +756,7 @@ const ABUJA: CityContent = {
 // ---------------------------------------------------------------------------
 // Canonical flow helpers — each mirrors its controller counterpart.
 // ---------------------------------------------------------------------------
-type SeedUser = { id: string; email: string; name: string; username: string; city: CityKey };
+type SeedUser = { id: string; email: string; name: string; username: string; city: CityKey; };
 
 async function createSystemMessage(opts: {
   questionId: string;
@@ -932,7 +932,7 @@ async function seedUserMessage(opts: {
  * transitions to CLOSED_ANSWERED with a system notice to that responder;
  * ACCEPTED requests are untouched.
  */
-async function seedCloseQuestion(opts: { questionId: string; reason: string; at?: Date }) {
+async function seedCloseQuestion(opts: { questionId: string; reason: string; at?: Date; }) {
   const at = opts.at ?? new Date();
   const isAnsweredClose = opts.reason === 'Question answered';
   const systemText = isAnsweredClose
@@ -1082,7 +1082,7 @@ async function backdateRequestMessages(opts: {
 async function createQuestion(
   def: QuestionBase,
   questionerId: string,
-  categories: Record<string, { id: string }>,
+  categories: Record<string, { id: string; }>,
   createdAt: Date,
 ) {
   const pinned = Boolean(def.place);
@@ -1128,7 +1128,7 @@ async function seedCity(opts: {
   label: string;
   content: CityContent;
   users: SeedUser[];
-  categories: Record<string, { id: string }>;
+  categories: Record<string, { id: string; }>;
   paymentRefStart: number;
 }) {
   const { content, users, categories } = opts;
@@ -1363,7 +1363,7 @@ async function seed() {
   }
 
   console.log('\nCreating categories…');
-  const categories: Record<string, { id: string }> = {};
+  const categories: Record<string, { id: string; }> = {};
   for (const def of CATEGORY_DEFS) {
     categories[def.slug] = await prisma.category.create({ data: def });
   }

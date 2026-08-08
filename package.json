@@ -6,6 +6,9 @@
   "directories": {
     "test": "tests"
   },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "start": "ts-node src/index.ts",
     "dev": "concurrently \"redis-server\" \"nodemon src/index.ts\"",

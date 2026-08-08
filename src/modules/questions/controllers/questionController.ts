@@ -2,8 +2,9 @@ import { AnswerRequestStatus, LocationScope, Prisma, QuestionStatus } from '@pri
 import { Request, Response } from 'express';
 import prisma from '../../../core/database/prisma/client';
 import { emitToUser } from '../../../core/socket/socket.server';
+import { notifyUser, notifyUsers } from '../../../common/utils/notify';
 import { calculateHaversineDistance } from '../../../common/utils/geo.utils';
-import { isWithinScope } from '../../../common/utils/locationScope.utils';
+import { getScopeRadiusKm, isWithinScope } from '../../../common/utils/locationScope.utils';
 import { createSystemMessage } from '../../../common/utils/messages.utils';
 import {
   getUserRatingByRole,
@@ -19,6 +20,7 @@ import {
 import {
   getMarketConfigValue,
   MARKET_CONFIG_KEYS,
+  getQuestionNewLocationFreshnessHours,
 } from '../../../modules/config/configService';
 import {
   buildViewerRequestSummary,
@@ -79,6 +81,122 @@ export const PRESET_CLOSE_REASONS = [
 
 export const CLOSE_REASON_QUESTION_ANSWERED = PRESET_CLOSE_REASONS[0];
 
+/**
+ * Hard ceiling on fan-out recipients per question, bounding push cost.
+ */
+const QUESTION_NEW_MAX_RECIPIENTS = 500;
+
+/**
+ * Fan out a `question:new` socket event + push to users who can act on the
+ * new question. Mirrors the feed's eligibility rule: the viewer must be
+ * inside the question's location scope. Targets each user's last reported
+ * location row (written by PUT /users/location as the app reads foreground
+ * GPS; the feed itself deliberately uses live GPS instead).
+ *
+ * Freshness: only locations reported within
+ * `questionNewLocationFreshnessHours` (market config; default 24h) are
+ * considered. A question about a place is time-sensitive, so if the user
+ * has closed the app, travelled, or simply not been around today, we don't
+ * ping the old spot.
+ *
+ * Scale path: the DB narrows candidates with an indexed bounding-box range
+ * filter (locations.latitude/longitude composite index) plus the freshness
+ * cutoff, so we never load more than QUESTION_NEW_MAX_RECIPIENTS rows; the
+ * precise haversine check then runs in JS on that small set. ANYWHERE has
+ * no radius, so it leans on the freshness cutoff + cap alone.
+ */
+async function notifyQuestionCreated(q: {
+  id: string;
+  authorId: string;
+  title: string;
+  price: number;
+  latitude: number | null;
+  longitude: number | null;
+  address: string | null;
+  locationScope: LocationScope;
+  categoryName: string | null;
+  createdAt: Date;
+}): Promise<void> {
+  try {
+    const radiusKm = await getScopeRadiusKm(q.locationScope);
+    const hasCoords = q.latitude != null && q.longitude != null;
+    const freshnessHours = await getQuestionNewLocationFreshnessHours();
+    const freshnessCutoff = new Date(Date.now() - freshnessHours * 3_600_000);
+
+    // Bounding box: 1° latitude ≈ 111.32 km; longitude degrees shrink with
+    // the cosine of latitude (clamped so polar/edge cases stay sane).
+    let boundingBox: { gte: number; lte: number; } | undefined;
+    let lngBox: { gte: number; lte: number; } | undefined;
+    if (radiusKm != null && hasCoords) {
+      const latDelta = radiusKm / 111.32;
+      const lngDelta = radiusKm / (111.32 * Math.max(Math.cos((q.latitude as number) * Math.PI / 180), 0.01));
+      boundingBox = { gte: (q.latitude as number) - latDelta, lte: (q.latitude as number) + latDelta };
+      lngBox = { gte: (q.longitude as number) - lngDelta, lte: (q.longitude as number) + lngDelta };
+    }
+
+    const candidates = await prisma.user.findMany({
+      where: {
+        id: { not: q.authorId },
+        notificationsEnabled: true,
+        locationSharingEnabled: true,
+        location: {
+          // Filtering on the relation's fields also implies the row exists.
+          updatedAt: { gte: freshnessCutoff },
+          ...(boundingBox && lngBox
+            ? { latitude: boundingBox, longitude: lngBox }
+            : {}),
+        },
+      },
+      select: {
+        id: true,
+        location: { select: { latitude: true, longitude: true } },
+      },
+      // Deterministic order so the cap truncates predictably (and favours the
+      // most recently active locations) instead of an arbitrary 500 rows.
+      orderBy: { location: { updatedAt: 'desc' } },
+      take: QUESTION_NEW_MAX_RECIPIENTS,
+    });
+
+    const recipientIds = candidates
+      .filter((u) => {
+        if (!u.location) return false;
+        // ANYWHERE (or an ungateable question) has no radius — the SQL
+        // filters above already applied freshness + cap.
+        if (radiusKm == null || !hasCoords) return true;
+        const distanceKm = calculateHaversineDistance(
+          q.latitude as number,
+          q.longitude as number,
+          u.location.latitude,
+          u.location.longitude,
+        );
+        return distanceKm <= radiusKm;
+      })
+      .map((u) => u.id);
+
+    if (recipientIds.length === 0) return;
+
+    const socketPayload = {
+      id: q.id,
+      title: q.title,
+      price: q.price,
+      latitude: q.latitude,
+      longitude: q.longitude,
+      address: q.address,
+      locationScope: q.locationScope,
+      category: q.categoryName ? { name: q.categoryName } : null,
+      createdAt: q.createdAt.toISOString(),
+    };
+    const price = `$${q.price}`;
+    notifyUsers(recipientIds, 'question:new', socketPayload, {
+      title: 'New question near you',
+      body: `${q.title} · ${price}`,
+      data: { type: 'question:new', questionId: q.id },
+    });
+  } catch (err) {
+    console.error('notifyQuestionCreated failed', err);
+  }
+}
+
 const MAX_CLOSE_REASON_LENGTH = 500;
 
 /**
@@ -129,6 +247,21 @@ export const createQuestion = async (req: AuthedRequest, res: Response) => {
     await invalidateNearbyQuestionsCache().catch((err) =>
       console.error('createQuestion cache invalidation failed', err),
     );
+
+    // Real-time fan-out: ping in-scope nearby users so the new question
+    // surfaces on their Home feed + as a push without a manual refresh.
+    void notifyQuestionCreated({
+      id: question.id,
+      authorId: question.userId,
+      title: question.title,
+      price: question.price,
+      latitude: question.latitude,
+      longitude: question.longitude,
+      address: question.address,
+      locationScope: question.locationScope,
+      categoryName: question.category?.name ?? null,
+      createdAt: question.createdAt,
+    });
 
     return res.status(201).json({
       message: 'Question created successfully',
@@ -983,7 +1116,16 @@ export const closeQuestion = async (req: AuthedRequest, res: Response) => {
     };
     emitToUser(userId, 'question:closed', payload);
     for (const r of pendingRequests) {
-      emitToUser(r.responderId, 'question:closed', payload);
+      notifyUser({
+        userId: r.responderId,
+        event: 'question:closed',
+        payload,
+        push: {
+          title: 'Question closed',
+          body: `“${question.title}” was closed${isAnsweredClose ? ' — it has been answered' : ''}`,
+          data: { type: 'question:closed', questionId: id },
+        },
+      });
     }
 
     return res.status(200).json({

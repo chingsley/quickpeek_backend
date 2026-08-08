@@ -40,7 +40,23 @@ export const validateUserLogin = (req: Request, res: Response, next: NextFunctio
       then: Joi.boolean().valid(true),
       otherwise: Joi.boolean().valid(false)
     }),
-    locationSharingEnabled: Joi.bool().required(),
+    // Optional at login: the app no longer forces a value here, and the
+    // device-update job only writes fields that are actually provided, so a
+    // login can no longer silently reset a user's saved preference.
+    locationSharingEnabled: Joi.bool().optional(),
+  });
+
+  const { error, value } = schema.validate(req.body);
+  if (error) return res.status(400).json({ error: error.details[0].message });
+
+  req.body = value;
+  next();
+};
+
+export const validateLocationUpdate = (req: Request, res: Response, next: NextFunction) => {
+  const schema = Joi.object({
+    latitude: Joi.number().min(-90).max(90).required(),
+    longitude: Joi.number().min(-180).max(180).required(),
   });
 
   const { error, value } = schema.validate(req.body);
@@ -56,6 +72,7 @@ export const validateUserProfileUpdate = (req: Request, res: Response, next: Nex
     username: Joi.string().lowercase().min(3).max(30).optional(),
     notificationsEnabled: Joi.boolean().optional(),
     locationSharingEnabled: Joi.boolean().optional(),
+    deviceToken: Joi.string().trim().allow('').optional(),
     profileImageUrl: Joi.string().uri().allow('', null).optional(),
   }).min(1); // at least one field must be provided
 

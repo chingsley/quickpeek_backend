@@ -12,6 +12,11 @@ export const MARKET_CONFIG_KEYS = {
   radiusWalkingKm: 'radiusWalkingKm',
   radiusNeighbourhoodKm: 'radiusNeighbourhoodKm',
   radiusCityKm: 'radiusCityKm',
+  // Max age (hours) of a user's last reported location for them to still
+  // receive "new question near you" pushes. A question about a place is
+  // time-sensitive, so this is intentionally short — if the user has moved
+  // or closed the app for the day, we stop pinging the old spot.
+  questionNewLocationFreshnessHours: 'questionNewLocationFreshnessHours',
 } as const;
 
 const DEFAULTS: Record<string, number> = {
@@ -22,6 +27,7 @@ const DEFAULTS: Record<string, number> = {
   [MARKET_CONFIG_KEYS.radiusWalkingKm]: 1,
   [MARKET_CONFIG_KEYS.radiusNeighbourhoodKm]: 5,
   [MARKET_CONFIG_KEYS.radiusCityKm]: 25,
+  [MARKET_CONFIG_KEYS.questionNewLocationFreshnessHours]: 24,
 };
 
 const CACHE_TTL_MS = 60_000;
@@ -75,6 +81,11 @@ export async function getReviewRevealWindowDays(): Promise<number> {
 /** Platform commission on question payments, in percent (0–100). */
 export async function getPlatformFeePercent(): Promise<number> {
   return getMarketConfigValue(MARKET_CONFIG_KEYS.platformFeePercent);
+}
+
+/** Max age, in hours, of a location still eligible for question:new push targeting. */
+export async function getQuestionNewLocationFreshnessHours(): Promise<number> {
+  return getMarketConfigValue(MARKET_CONFIG_KEYS.questionNewLocationFreshnessHours);
 }
 
 /**

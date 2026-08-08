@@ -49,6 +49,8 @@ model Location {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // Supports the question:new bounding-box pre-filter (lat/lng range scan).
+  @@index([latitude, longitude])
   @@map("locations")
 }
 

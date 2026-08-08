@@ -1,16 +1,12 @@
 import { PrismaClient } from '@prisma/client';
-import config from '../../config/default';
+import { resolveDatabaseUrl } from '../../config/default';
 
-
-const env = process.env.NODE_ENV || 'dev';
-console.log({ env, db: config.db.url[env].slice(50) });
 const prisma = new PrismaClient({
   datasources: {
     db: {
-      url: config.db.url[env],
+      url: resolveDatabaseUrl(),
     },
   },
-  // log: ['query', 'info', 'warn', 'error']
 });
 
 export default prisma;
